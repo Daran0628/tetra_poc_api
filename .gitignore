@@ -1,0 +1,3 @@
+# 로컬 테스트 키 (scripts/gen-test-keys.sh 로 각자 생성)
+local-keys/
+db/init/03_local_test_key.sql

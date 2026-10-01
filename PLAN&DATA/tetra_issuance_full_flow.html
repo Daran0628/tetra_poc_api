@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tetra 발급 플로우 전체 다이어그램</title>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --ink: #1c2026;
+    --ink2: #59616c;
+    --line: #c6ccd4;
+    --rule: #d9dde3;
+    --arrow: #6b7480;
+
+    --gray-f: #eceef2;  --gray-s: #a4abb6;  --gray-t: #262b32;
+    --teal-f: #d5efe9;  --teal-s: #2f9d86;  --teal-t: #0c4a3d;
+    --purple-f: #e4e0fb; --purple-s: #6f5fd0; --purple-t: #2f2478;
+    --amber-f: #fdecc8; --amber-s: #c98a1a; --amber-t: #6a4308;
+    --blue-f: #d9e8fb;  --blue-s: #3a7bd5;  --blue-t: #123f7a;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111316;
+      --surface: #171a1e;
+      --ink: #e8eaee;
+      --ink2: #a3aab5;
+      --line: #3a3f47;
+      --rule: #2a2e35;
+      --arrow: #8a929e;
+
+      --gray-f: #292d33;  --gray-s: #5b626d;  --gray-t: #e6e8ec;
+      --teal-f: #0f4a3f;  --teal-s: #3fbfa5;  --teal-t: #b6f0e3;
+      --purple-f: #33297a; --purple-s: #8b7cf0; --purple-t: #d9d3ff;
+      --amber-f: #5a3f0c; --amber-s: #e0a83a; --amber-t: #ffe2a3;
+      --blue-f: #163a66;  --blue-s: #5c9bf0;  --blue-t: #cfe4ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111316;
+    --surface: #171a1e;
+    --ink: #e8eaee;
+    --ink2: #a3aab5;
+    --line: #3a3f47;
+    --rule: #2a2e35;
+    --arrow: #8a929e;
+
+    --gray-f: #292d33;  --gray-s: #5b626d;  --gray-t: #e6e8ec;
+    --teal-f: #0f4a3f;  --teal-s: #3fbfa5;  --teal-t: #b6f0e3;
+    --purple-f: #33297a; --purple-s: #8b7cf0; --purple-t: #d9d3ff;
+    --amber-f: #5a3f0c; --amber-s: #e0a83a; --amber-t: #ffe2a3;
+    --blue-f: #163a66;  --blue-s: #5c9bf0;  --blue-t: #cfe4ff;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
+    line-height: 1.65;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 20px 56px; }
+  h1 { font-size: 22px; line-height: 1.35; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .lede { margin: 0 0 22px; color: var(--ink2); font-size: 15px; max-width: 66ch; }
+
+  .figure {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+  }
+  .figure svg { display: block; width: 100%; min-width: 900px; height: auto; }
+
+  .lane-box { fill: none; stroke: var(--line); stroke-width: 0.75; }
+  .lane { font-size: 13px; font-weight: 600; fill: var(--ink2); }
+  .th { font-size: 14px; font-weight: 600; }
+  .ts { font-size: 12px; }
+  .arr { fill: none; stroke: var(--arrow); stroke-width: 1.5; }
+  .dash { stroke-dasharray: 4 3; }
+  .lbl { font-size: 12px; fill: var(--ink2); }
+  .note-box { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 3; }
+  .note-text { font-size: 12px; fill: var(--ink2); }
+
+  .node rect { stroke-width: 1; }
+  .node.thick rect { stroke-width: 2.25; }
+  .node.dashed rect { stroke-dasharray: 4 3; }
+  .n-gray rect { fill: var(--gray-f); stroke: var(--gray-s); }
+  .n-gray .th, .n-gray .ts { fill: var(--gray-t); }
+  .n-teal rect { fill: var(--teal-f); stroke: var(--teal-s); }
+  .n-teal .th, .n-teal .ts { fill: var(--teal-t); }
+  .n-purple rect { fill: var(--purple-f); stroke: var(--purple-s); }
+  .n-purple .th, .n-purple .ts { fill: var(--purple-t); }
+  .b-amber circle { fill: var(--amber-f); stroke: var(--amber-s); stroke-width: 1; }
+  .b-amber text { fill: var(--amber-t); font-size: 12px; font-weight: 600; }
+  .b-blue circle { fill: var(--blue-f); stroke: var(--blue-s); stroke-width: 1; }
+  .b-blue text { fill: var(--blue-t); font-size: 12px; font-weight: 600; }
+
+  .legend { margin: 18px 0 0; padding: 0; list-style: none; font-size: 14px; color: var(--ink2); }
+  .legend li { display: flex; gap: 10px; align-items: baseline; margin: 6px 0; max-width: 76ch; }
+  .chip {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%; font-size: 12px; font-weight: 600; line-height: 1;
+  }
+  .chip.amber { background: var(--amber-f); border: 1px solid var(--amber-s); color: var(--amber-t); }
+  .chip.blue { background: var(--blue-f); border: 1px solid var(--blue-s); color: var(--blue-t); }
+  .chip.thick { border-radius: 4px; background: var(--gray-f); border: 2px solid var(--gray-s); }
+  .chip.dashed { border-radius: 4px; background: var(--gray-f); border: 1px dashed var(--gray-s); }
+
+  h2 { font-size: 16px; margin: 34px 0 8px; }
+  p, li { font-size: 14px; }
+  .text-block { max-width: 70ch; }
+  .text-block ul, .text-block ol { margin: 8px 0; padding-left: 22px; }
+  .text-block li { margin: 6px 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; background: var(--gray-f); padding: 1px 5px; border-radius: 4px; }
+
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px 32px; margin-top: 4px; }
+  .cols h3 { font-size: 14px; margin: 14px 0 4px; }
+  .cols ul { margin: 0; padding-left: 20px; }
+  .cols li { margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tetra 발급 플로우 전체 다이어그램</h1>
+  <p class="lede">테넌트가 JWT를 서명해 보내는 순간부터 쿠폰 발급 결과가 이력에 남는 순간까지의 흐름입니다. 지금까지 정한 내용을 반영했고, 아직 설계하지 않은 부분(폴링·서빙 커서, 집계 저장)은 점선으로 표시했습니다.</p>
+
+  <div class="figure">
+  <svg viewBox="0 0 996 560" role="img" aria-labelledby="dt dd">
+    <title id="dt">Tetra 발급 플로우 전체 다이어그램</title>
+    <desc id="dd">테넌트 JWT 서명과 리다이렉트, API의 JWT 검증과 세션 생성, 대기방과 지터 대기, 번호표 API의 시작 시각 검증과 Lua 한 번의 번호 채번, 폴링과 서빙 커서(설계 예정), 테넌트 코드인 발급 화면, 쿠폰 API의 재고 차감 Lua, 결과 확정 시 발급이력 INSERT, 결과 화면까지의 흐름.</desc>
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M2 1L8 5L2 9" fill="none" style="stroke: var(--arrow)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </marker>
+    </defs>
+
+    <!-- lanes -->
+    <rect class="lane-box" x="36" y="20"  width="936" height="80" rx="8"/>
+    <rect class="lane-box" x="36" y="108" width="936" height="80" rx="8"/>
+    <rect class="lane-box" x="36" y="196" width="936" height="80" rx="8"/>
+    <rect class="lane-box" x="36" y="284" width="936" height="80" rx="8"/>
+    <rect class="lane-box" x="36" y="372" width="936" height="80" rx="8"/>
+    <rect class="lane-box" x="36" y="460" width="936" height="80" rx="8"/>
+    <text class="lane" x="46" y="60"  dominant-baseline="central">테넌트</text>
+    <text class="lane" x="46" y="148" dominant-baseline="central">화면</text>
+    <text class="lane" x="46" y="236" dominant-baseline="central">Front</text>
+    <text class="lane" x="46" y="324" dominant-baseline="central">API</text>
+    <text class="lane" x="46" y="412" dominant-baseline="central">Redis</text>
+    <text class="lane" x="46" y="500" dominant-baseline="central">MySQL</text>
+
+    <!-- arrows: entry and ticket -->
+    <path class="arr" d="M148 86 L148 324 L220 324" marker-end="url(#arrow)"/>
+    <path class="arr" d="M240 354 L240 368 L148 368 L148 470" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <path class="arr" d="M328 324 L400 324 L400 382" marker-end="url(#arrow)"/>
+    <path class="arr" d="M286 294 L286 148 L346 148" marker-end="url(#arrow)"/>
+    <path class="arr" d="M400 174 L400 206" marker-end="url(#arrow)"/>
+    <path class="arr" d="M454 236 L463 236 L463 148 L472 148" marker-end="url(#arrow)"/>
+    <path class="arr" d="M526 178 L526 294" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <path class="arr" d="M526 354 L526 382" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <path class="arr" d="M580 412 L598 412" marker-end="url(#arrow)"/>
+    <path class="arr dash" d="M652 442 L652 470" marker-end="url(#arrow)"/>
+
+    <!-- arrows: polling (undecided) and move to issue page -->
+    <path class="arr dash" d="M580 162 L652 162 L652 294" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <path class="arr dash" d="M580 134 L724 134" marker-end="url(#arrow)"/>
+
+    <!-- arrows: coupon issuance -->
+    <path class="arr" d="M778 178 L778 294" marker-end="url(#arrow)"/>
+    <path class="arr" d="M778 354 L778 382" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <path class="arr" d="M832 324 L904 324 L904 470" marker-end="url(#arrow)"/>
+    <path class="arr" d="M806 294 L806 236 L904 236 L904 178" marker-end="url(#arrow)"/>
+
+    <text class="lbl" x="156" y="148" dominant-baseline="central">리다이렉트</text>
+    <text class="lbl" x="652" y="122" text-anchor="middle">0명 → 이동</text>
+    <text class="lbl" x="660" y="236" dominant-baseline="central">폴링</text>
+
+    <!-- nodes: tenant, screens -->
+    <g class="node n-gray">
+      <title>테넌트 백엔드가 개인키로 JWT를 서명하고 Tetra로 리다이렉트</title>
+      <rect x="96" y="34" width="104" height="52" rx="8"/>
+      <text class="th" x="148" y="51" text-anchor="middle" dominant-baseline="central">JWT 서명</text>
+      <text class="ts" x="148" y="69" text-anchor="middle" dominant-baseline="central">개인키</text>
+    </g>
+    <g class="node n-gray">
+      <title>이벤트 1시간 전에 열리는 대기방. 카운트다운이 끝나면 버튼이 활성화됨</title>
+      <rect x="348" y="122" width="104" height="52" rx="8"/>
+      <text class="th" x="400" y="139" text-anchor="middle" dominant-baseline="central">대기방</text>
+      <text class="ts" x="400" y="157" text-anchor="middle" dominant-baseline="central">카운트다운</text>
+    </g>
+    <g class="node n-gray">
+      <title>03 화면에 들어오면 번호표 API를 호출하고 이후 폴링으로 대기자 수를 갱신</title>
+      <rect x="474" y="122" width="104" height="52" rx="8"/>
+      <text class="th" x="526" y="139" text-anchor="middle" dominant-baseline="central">순번 표시</text>
+      <text class="ts" x="526" y="157" text-anchor="middle" dominant-baseline="central">03 진입</text>
+    </g>
+    <g class="node n-gray">
+      <title>테넌트가 올린 정적 페이지(04). 쿠폰 받기 버튼이 있으며 테넌트 코드라 서버가 세션과 자격을 검증해야 함</title>
+      <rect x="726" y="122" width="104" height="52" rx="8"/>
+      <text class="th" x="778" y="139" text-anchor="middle" dominant-baseline="central">발급 화면</text>
+      <text class="ts" x="778" y="157" text-anchor="middle" dominant-baseline="central">테넌트 코드</text>
+    </g>
+    <g class="node n-gray">
+      <title>성공 또는 품절 모달을 보여주고 확인 시 테넌트 페이지로 복귀</title>
+      <rect x="852" y="122" width="104" height="52" rx="8"/>
+      <text class="th" x="904" y="139" text-anchor="middle" dominant-baseline="central">결과 화면</text>
+      <text class="ts" x="904" y="157" text-anchor="middle" dominant-baseline="central">성공/품절</text>
+    </g>
+
+    <!-- nodes: front -->
+    <g class="node n-gray thick">
+      <title>요청 도착 시점을 0~2초에 걸쳐 분산하는 클라이언트 지터. 서버가 강제하지 않는 정상 사용자용 장치</title>
+      <rect x="348" y="210" width="104" height="52" rx="8"/>
+      <text class="th" x="400" y="227" text-anchor="middle" dominant-baseline="central">지터 대기</text>
+      <text class="ts" x="400" y="245" text-anchor="middle" dominant-baseline="central">0~2초 랜덤</text>
+    </g>
+
+    <!-- nodes: API -->
+    <g class="node n-gray">
+      <title>서명, 만료 확인. 공개키는 MySQL에서 읽기만 함</title>
+      <rect x="222" y="298" width="104" height="52" rx="8"/>
+      <text class="th" x="274" y="315" text-anchor="middle" dominant-baseline="central">JWT 검증</text>
+      <text class="ts" x="274" y="333" text-anchor="middle" dominant-baseline="central">서명·exp</text>
+    </g>
+    <g class="node n-gray">
+      <title>서버 시각이 이벤트 시작 전이면 Redis 호출 전에 거절. 통과하면 Lua 한 번으로 세션 확인, 번호 채번, 세션 기록, 집계 카운터 갱신을 처리. 요청 ID 없이 호출될 때마다 새 번호 (재시도, 새로고침 포함)</title>
+      <rect x="474" y="298" width="104" height="52" rx="8"/>
+      <text class="th" x="526" y="315" text-anchor="middle" dominant-baseline="central">번호표 API</text>
+      <text class="ts" x="526" y="333" text-anchor="middle" dominant-baseline="central">검증 후 Lua</text>
+    </g>
+    <g class="node n-gray dashed">
+      <title>순번 조회 폴링과 서빙 커서(증가 주체, 주기, 칸 수, 캐시)는 나중에 설계</title>
+      <rect x="600" y="298" width="104" height="52" rx="8"/>
+      <text class="th" x="652" y="315" text-anchor="middle" dominant-baseline="central">폴링·커서</text>
+      <text class="ts" x="652" y="333" text-anchor="middle" dominant-baseline="central">나중에 설계</text>
+    </g>
+    <g class="node n-gray">
+      <title>쿠폰 받기 요청을 처리. 쿠폰 최대 10종을 한 번에 발급(전체 발급)하고 매수가 모두 같아서 재고는 이벤트당 하나로 셈. 세션과 입장 자격을 서버에서 검증</title>
+      <rect x="726" y="298" width="104" height="52" rx="8"/>
+      <text class="th" x="778" y="315" text-anchor="middle" dominant-baseline="central">쿠폰 API</text>
+      <text class="ts" x="778" y="333" text-anchor="middle" dominant-baseline="central">전체 발급</text>
+    </g>
+
+    <!-- nodes: Redis -->
+    <g class="node n-teal">
+      <title>jti는 SET NX EX 한 번으로 확인과 저장을 함께 처리. 세션을 만들 때 진입 카운터를 +1</title>
+      <rect x="348" y="386" width="104" height="52" rx="8"/>
+      <text class="th" x="400" y="403" text-anchor="middle" dominant-baseline="central">jti·세션</text>
+      <text class="ts" x="400" y="421" text-anchor="middle" dominant-baseline="central">생성·진입 +1</text>
+    </g>
+    <g class="node n-teal">
+      <title>세션 확인, INCR, 세션 기록, 집계 카운터 갱신을 Lua 하나로 처리해 Redis 왕복을 1번으로 줄임. 세션에 이미 티켓 번호가 있으면 재발급 카운터 +1, 없으면 번호 수령 카운터 +1. 단일 노드 단일 샤드라 슬롯 제약이 없음</title>
+      <rect x="474" y="386" width="104" height="52" rx="8"/>
+      <text class="th" x="526" y="403" text-anchor="middle" dominant-baseline="central">번호표 Lua</text>
+      <text class="ts" x="526" y="421" text-anchor="middle" dominant-baseline="central">한 왕복 처리</text>
+    </g>
+    <g class="node n-teal">
+      <title>진입 수, 번호 수령 수(처음 받은 사람), 재발급 수(새로고침·재시도로 생긴 구멍의 수)를 Redis 카운터로 셈. 이탈자는 사람별 기록 없이 이 숫자로만 남음</title>
+      <rect x="600" y="386" width="104" height="52" rx="8"/>
+      <text class="th" x="652" y="403" text-anchor="middle" dominant-baseline="central">집계 카운터</text>
+      <text class="ts" x="652" y="421" text-anchor="middle" dominant-baseline="central">3종 카운트</text>
+    </g>
+    <g class="node n-teal thick">
+      <title>중복 발급 플래그 확인, 이벤트 단위 재고 확인, 재고 차감을 Lua 하나로 원자적으로 처리. 쿠폰 매수가 모두 같아서 재고 키는 하나. 결과는 성공, 품절, 이미 발급 중 하나</title>
+      <rect x="726" y="386" width="104" height="52" rx="8"/>
+      <text class="th" x="778" y="403" text-anchor="middle" dominant-baseline="central">재고 Lua</text>
+      <text class="ts" x="778" y="421" text-anchor="middle" dominant-baseline="central">중복·재고·차감</text>
+    </g>
+
+    <!-- nodes: MySQL -->
+    <g class="node n-purple">
+      <title>event_key 테이블에서 이벤트별 공개키 조회</title>
+      <rect x="96" y="474" width="104" height="52" rx="8"/>
+      <text class="th" x="148" y="491" text-anchor="middle" dominant-baseline="central">공개키</text>
+      <text class="ts" x="148" y="509" text-anchor="middle" dominant-baseline="central">event_key</text>
+    </g>
+    <g class="node n-purple dashed">
+      <title>Redis 집계 카운터를 MySQL에 저장하는 시점과 방식(이벤트 종료 시, 주기 스냅샷)은 미정</title>
+      <rect x="600" y="474" width="104" height="52" rx="8"/>
+      <text class="th" x="652" y="491" text-anchor="middle" dominant-baseline="central">집계 저장</text>
+      <text class="ts" x="652" y="509" text-anchor="middle" dominant-baseline="central">시점 미정</text>
+    </g>
+    <g class="node n-purple">
+      <title>쿠폰 받기 결과가 확정될 때 사용자당 행 하나를 INSERT. 성공과 품절 실패를 모두 기록하고 세션의 티켓 번호와 대기열 진입 시각을 함께 넣음</title>
+      <rect x="852" y="474" width="104" height="52" rx="8"/>
+      <text class="th" x="904" y="491" text-anchor="middle" dominant-baseline="central">이력 INSERT</text>
+      <text class="ts" x="904" y="509" text-anchor="middle" dominant-baseline="central">성공·품절 행</text>
+    </g>
+
+    <!-- policy note -->
+    <rect class="note-box" x="222" y="474" width="230" height="52" rx="8"/>
+    <text class="note-text" x="236" y="488" dominant-baseline="central">새로고침·재시도 → 새 번호</text>
+    <text class="note-text" x="236" y="504" dominant-baseline="central">버려진 번호 = 구멍</text>
+    <text class="note-text" x="236" y="520" dominant-baseline="central">커서는 구멍을 그냥 지나감</text>
+
+    <!-- badges -->
+    <g class="b-amber"><circle cx="322" cy="302" r="9"/><text x="322" y="302" text-anchor="middle" dominant-baseline="central">1</text></g>
+    <g class="b-amber"><circle cx="574" cy="302" r="9"/><text x="574" y="302" text-anchor="middle" dominant-baseline="central">2</text></g>
+    <g class="b-amber"><circle cx="574" cy="390" r="9"/><text x="574" y="390" text-anchor="middle" dominant-baseline="central">2</text></g>
+    <g class="b-blue"><circle cx="574" cy="346" r="9"/><text x="574" y="346" text-anchor="middle" dominant-baseline="central">↑</text></g>
+  </svg>
+  </div>
+
+  <ul class="legend">
+    <li><span class="chip amber">1</span><span>진입: 대기방이 1시간 전에 열려 5만 명이 고르게 들어온다고 가정하면 초당 약 14건이라 부하가 작습니다. JWT 검증과 세션 생성만 하고 DB에는 쓰지 않습니다.</span></li>
+    <li><span class="chip amber">2</span><span>번호표 발급: 이 시스템에서 가장 크게 몰리는 지점입니다. 요청 경로에는 Redis Lua 한 번뿐이라 DB와 큐가 없고, 지터가 짧아 순간 피크는 사전 스케일링과 Redis 스케일 업으로 받습니다.</span></li>
+    <li><span class="chip blue">↑</span><span>사전 스케일링 후보 Pod입니다. 시점, 트리거, 범위는 아직 정하지 않았습니다.</span></li>
+    <li><span class="chip thick"></span><span>굵은 테두리는 부하 완화 장치(지터)와 원자성이 필요한 재고 Lua입니다.</span></li>
+    <li><span class="chip dashed"></span><span>점선 박스와 화살표는 아직 설계하지 않았거나 방식이 정해지지 않은 부분입니다.</span></li>
+  </ul>
+
+  <h2>흐름 요약</h2>
+  <div class="text-block">
+    <ol>
+      <li>테넌트 백엔드가 개인키로 JWT를 서명해 Tetra로 리다이렉트합니다.</li>
+      <li>API가 MySQL의 공개키로 서명과 만료를 검증하고, Redis에서 jti를 확인한 뒤 세션을 만듭니다. 진입 카운터가 +1 됩니다.</li>
+      <li>이벤트 1시간 전에 열린 대기방에서 카운트다운이 끝나면 버튼이 활성화되고, 지터 0~2초 뒤에 03 화면으로 진입해 번호표 API를 호출합니다.</li>
+      <li>번호표 API는 서버 시각이 이벤트 시작 전이면 거절하고, 통과하면 Lua 하나로 세션 확인, 번호 채번, 세션 기록, 집계 카운터 갱신을 처리합니다.</li>
+      <li>03 화면이 폴링으로 내 번호와 서빙 커서를 비교합니다(설계 예정). 대기자 수가 0이 되면 발급 화면(04)으로 이동합니다.</li>
+      <li>04는 테넌트가 올린 정적 페이지입니다. 쿠폰 받기를 누르면 쿠폰 API가 재고 Lua로 중복 확인, 재고 확인, 차감을 한 번에 처리합니다(전체 발급).</li>
+      <li>결과가 성공이든 품절이든 발급이력에 행 하나를 INSERT하고 결과 화면으로 응답합니다.</li>
+    </ol>
+  </div>
+
+  <h2>이 그림의 가정</h2>
+  <div class="text-block">
+    <ul>
+      <li>번호표 API는 재시도든 새로고침이든 호출될 때마다 새 번호를 발급합니다. 버려진 번호는 구멍이 되고 서빙 커서는 구멍을 그냥 지나갑니다. 실제 입장 인원은 <code>N × (1 − 구멍 비율)</code>이며, 구멍 비율은 집계 카운터의 재발급 수로 계산합니다.</li>
+      <li>번호표 API는 서버 시각이 이벤트 시작 시각 전이면 Redis 호출 전에 거절합니다. 거절된 요청은 번호를 소모하지 않습니다.</li>
+      <li>지터는 0~2초이고 서버가 강제하지 않습니다. 우회하는 요청은 막지 못하는 것을 감수하며, 선착순은 서버 도착 순서 기준으로 2초 안에서는 순서가 섞입니다.</li>
+      <li>진입은 대기방이 열려 있는 1시간에 고르게 들어온다고 가정합니다. 시작 직전에 쏠리는 경우도 부하 테스트 시나리오에 넣어 확인합니다.</li>
+      <li>Redis는 단일 노드 단일 샤드로 두고 부족하면 노드 사양을 올립니다. 번호표 요청은 성능 목적으로 Lua 하나로 처리하고, 재고 차감 Lua는 원자성 목적으로 씁니다.</li>
+      <li>쿠폰은 전체 발급이고 이벤트 안의 쿠폰 매수가 모두 같아서 일부만 품절되는 경우가 없습니다. 재고 Lua는 재고 키 하나와 중복 발급 플래그만 다루므로, 여러 재고 키를 한 번에 확인하고 하나라도 부족하면 전체를 실패시키는 로직이 필요 없습니다.</li>
+      <li>발급이력은 쿠폰 받기 결과가 확정될 때 사용자당 행 하나를 INSERT합니다. 성공과 품절 실패를 모두 기록하고, 세션의 티켓 번호와 대기열 진입 시각을 함께 넣습니다. 진입만 하거나 번호만 받고 나간 사람은 사람별 기록 없이 집계 카운터로만 남깁니다.</li>
+      <li>근본적인 부하 대응은 부하 테스트로 필요한 스펙을 정하는 방식입니다. 병목으로 확인된 곳만 추가로 고칩니다.</li>
+    </ul>
+  </div>
+
+  <h2>결정된 것과 남은 것</h2>
+  <div class="cols">
+    <div>
+      <h3>결정</h3>
+      <ul>
+        <li>재시도와 새로고침 모두 새 번호를 발급하고 구멍을 허용합니다.</li>
+        <li>번호표 API가 서버 시각 기준으로 이벤트 시작 전 요청을 거절합니다.</li>
+        <li>클라이언트 지터를 0~2초로 적용합니다. 서버 강제는 하지 않습니다.</li>
+        <li>Redis는 단일 노드 단일 샤드, 스케일 업으로 대응합니다.</li>
+        <li>번호표 요청은 Lua 하나로 처리합니다.</li>
+        <li>발급이력은 결과 확정 시 INSERT 한 번(성공·품절 실패 모두)이고, SQS와 워커는 쓰지 않습니다.</li>
+        <li>진입, 번호 수령, 재발급은 Redis 집계 카운터로 셉니다.</li>
+        <li>쿠폰은 전체 발급이고 매수가 모두 같아서, 재고는 이벤트당 카운터 하나로 셉니다.</li>
+        <li>사전 스케일링을 합니다. 범위는 미정입니다.</li>
+        <li>타임아웃은 따로 둡니다.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>미정</h3>
+      <ul>
+        <li>폴링과 서빙 커서: 증가 주체, 주기, 칸 수, 캐시 (나중에 설계)</li>
+        <li>집계 카운터를 MySQL에 언제 어디에 저장할지</li>
+        <li>재고가 소진된 뒤 대기 중인 사람에게 바로 품절을 안내할지 (품절 플래그)</li>
+        <li>03에서 04로 넘어갈 때 세션 전달 방식과 발급 API의 서버 측 입장 자격 검증</li>
+        <li>지터 2초를 코드에 고정할지 서버가 이벤트별로 내려줄지</li>
+        <li>서버 시각 기준 카운트다운 보정 방식과 백그라운드 탭 재보정</li>
+        <li>세션 TTL (대기방 1시간 + 번호표 대기 + 발급 화면 체류 + 여유)</li>
+        <li>타임아웃 값과 기준</li>
+        <li>공개키 캐시 여부와 폐기된 키의 반영 지연</li>
+        <li>사전 스케일링의 시점, 트리거, 대상 범위</li>
+        <li>부하 테스트로 잴 값: 번호표 API Pod 하나와 Redis 노드 하나의 처리 한계</li>
+        <li>세션의 Redis 자료구조 (Lua가 읽고 쓰기 좋은 해시로 가정)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>팀 확인이 필요한 것</h2>
+  <div class="text-block">
+    <ul>
+      <li>발급이력을 결과 확정 시 INSERT 한 번으로 바꾸는 것. 기획서의 "전체 참여 현황"을 사람별 목록이 아니라 단계별 인원 수치로 해석해도 되는지가 핵심이고, 결정되면 ERD 4단계 문서와 토큰·세션 Flow 문서를 고쳐야 합니다.</li>
+      <li>새로고침과 재시도에 새 번호를 주고 구멍을 허용하는 것.</li>
+      <li>서버가 시작 전 요청을 거절하는 것과 지터 0~2초(서버 강제 없음).</li>
+      <li>Redis 단일 노드와 스케일 업, 번호표 요청의 Lua 처리.</li>
+      <li>부하 테스트로 스펙을 정하는 방식.</li>
+      <li>이벤트 신청 폼에서 쿠폰 매수가 모두 같도록 보장되는지 (입력 필드를 하나로 하거나 동일 값 검증). 다르게 들어갈 수 있다면 재고 카운터 하나로는 부족합니다.</li>
+      <li>서빙 커서를 누가, 얼마나 자주, 몇 칸씩 올릴지. DB 쓰기가 방어됐다는 판단이 이 값에 기대고 있습니다.</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

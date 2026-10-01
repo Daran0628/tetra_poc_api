@@ -1,0 +1,36 @@
+# 로컬 개발용 MySQL + Valkey(Redis 호환). 배포 환경에서는 RDS / ElastiCache 를 쓴다.
+# 접속 정보는 issuance-service/values/values-local.yml 과 같은 값을 써야 한다.
+services:
+  mysql:
+    image: mysql:8.0            # CHECK 제약은 8.0.16 이상 필요 — 8.0 최신 패치 사용
+    container_name: tetra-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: devpassword
+      MYSQL_DATABASE: tetra_poc
+      MYSQL_USER: tetra
+      MYSQL_PASSWORD: tetra
+      TZ: Asia/Seoul            # DB 저장 타임존 KST (PDF 1장)
+    command:
+      - --default-time-zone=+09:00
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports: ["3306:3306"]
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d   # 최초 기동(빈 볼륨)일 때만 01→02→03 순서로 실행
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pdevpassword"]
+      interval: 5s
+      retries: 20
+
+  valkey:
+    image: valkey/valkey:7.2
+    container_name: tetra-valkey
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  mysql-data:

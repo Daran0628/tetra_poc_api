@@ -1,0 +1,79 @@
+# =====================================================================
+# Issuance Service 설정 "구조"
+# ---------------------------------------------------------------------
+# 이 파일에는 값을 직접 쓰지 않고 ${values.*} 참조만 둔다.
+# 실제 값은 values/values-{환경}.yml 에 있다 (Helm values.yaml → 템플릿 관계).
+#   - 환경 선택: 환경변수 TETRA_ENV (기본 local) → values/values-local.yml
+#   - 경로는 실행 위치(issuance-service 폴더) 기준
+# =====================================================================
+spring:
+  application:
+    name: issuance-service
+  config:
+    import: file:./values/values-${TETRA_ENV:local}.yml
+
+  datasource:
+    url: jdbc:mysql://${values.db.host}:${values.db.port}/${values.db.name}?connectionTimeZone=${values.timezone}&characterEncoding=UTF-8
+    username: ${values.db.username}
+    password: ${values.db.password}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # 테이블은 DB 정의서 DDL로 만든다. 앱은 구조를 바꾸지 않고 엔티티와 맞는지만 검사
+    open-in-view: false           # 요청 끝까지 DB 연결을 붙잡지 않음
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: ${values.timezone}
+
+  data:
+    redis:
+      host: ${values.redis.host}
+      port: ${values.redis.port}
+
+  jackson:
+    time-zone: ${values.timezone}
+
+# --- 내장 Tomcat --------------------------------------------------------
+# CloudFront → ALB 구간에서 Host 가 오리진 주소(origin.gamza-dev.shop)로 바뀌어 들어온다.
+# 기본값(false)이면 sendRedirect("/") 를 Tomcat 이 "http://{Host}/" 절대 주소로 바꿔
+# 브라우저가 오리진으로 이동해 버리므로, 상대 경로를 그대로 내보내도록 고정한다.
+server:
+  tomcat:
+    use-relative-redirects: true
+    # 접근 로그는 기본 꺼짐. 켜더라도 쿼리스트링이 남지 않게 %U(경로만)를 쓴다 — 기본 형식의 %r 은
+    # "GET /api/issuance/session?JWT=..." 처럼 토큰까지 기록함 (플랜 4-1 쿼리스트링 마스킹)
+    accesslog:
+      pattern: '%h %t "%m %U %H" %s %b %D'
+
+# --- 헬스체크 (Actuator) ------------------------------------------------
+# health 엔드포인트만 연다: GET /actuator/health (MySQL·Redis 상태 포함)
+# CloudFront는 /api/* 만 ALB로 보내므로 외부에서는 닿지 않고, ALB·EKS 헬스체크용으로 쓴다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: ${values.management.health-show-details}
+
+# --- 앱 설정 (진행 문서 0-2 표의 tetra.* 키) ------------------------------
+tetra:
+  timezone: ${values.timezone}
+  session:
+    redirect-url: ${values.session.redirect-url}
+    cookie-name: ${values.session.cookie-name}
+    ttl: ${values.session.ttl}
+    cookie-secure: ${values.session.cookie-secure}
+  queue:
+    cursor-step: ${values.queue.cursor-step}
+    cursor-window: ${values.queue.cursor-window}
+    cursor-cache-s-maxage: ${values.queue.cursor-cache-s-maxage}
+  jwt:
+    user-id-max-length: ${values.jwt.user-id-max-length}
+    clock-skew: ${values.jwt.clock-skew}
+    max-ttl: ${values.jwt.max-ttl}
+    test-private-key-path: ${values.jwt.test-private-key-path}
+  stock:
+    warmup-mode: ${values.stock.warmup-mode}
