@@ -60,7 +60,7 @@ class TetraPropertiesTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "/", "/waiting", "/events/1/waiting?from=session" })
+	@ValueSource(strings = { "/", "/waiting", "/events/1/waiting?from=session", "/?event={eventId}" })
 	void 상대_경로_redirect_url은_허용된다(String url) {
 		runner.withPropertyValues("tetra.session.redirect-url=" + url)
 				.run(context -> assertThat(context).hasNotFailed());

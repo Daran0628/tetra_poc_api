@@ -93,7 +93,7 @@ class FullFlowIntegrationTest {
 		MockHttpServletResponse res = mockMvc.perform(get("/api/issuance/session")
 				.param("JWT", tenant.token().userId(c.userId).sign())).andReturn().getResponse();
 		assertThat(res.getStatus()).isEqualTo(302);
-		assertThat(res.getHeader("Location")).isEqualTo("/");
+		assertThat(res.getHeader("Location")).isEqualTo("/?event=1"); // 숫자 event_id 를 쿼리로 (도메인 첫 라벨은 해시값)
 		Matcher m = SID.matcher(res.getHeader("Set-Cookie"));
 		assertThat(m.find()).isTrue();
 		c.sid = m.group(1);

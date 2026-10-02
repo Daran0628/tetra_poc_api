@@ -38,7 +38,7 @@ ADR-0001 최초 버전은 **API 별도 도메인(`issuance.tetra.io`) + Redis ZS
 
 | 항목 | 이전(구) | 현재(신) |
 |---|---|---|
-| 진입 도메인 | 화면 `*.{tenant_id}.tetra.io`(CloudFront→S3), API `issuance.tetra.io`(ALB 직접) — 진입점 2개 | **단일 호스트 `{이벤트}.{tenant_id}.tetra.io`** — CloudFront가 경로로 분기(`/api/*` → ALB, 그 외 → S3) |
+| 진입 도메인 | 화면 `*.{tenant_id}.tetra.io`(CloudFront→S3), API `issuance.tetra.io`(ALB 직접) — 진입점 2개 | **단일 호스트 `{event_slug}.{tenant_id}.루트도메인`** (예 `k7f2q9.poctenant001.gamza-dev.shop`) — CloudFront가 경로로 분기(`/api/*` → ALB, 그 외 → S3). `event_slug`는 이벤트 승인 워크플로우가 만드는 UX용 해시값이고 `event.subdomain`에 `{event_slug}.{tenant_id}`로 저장, 별도 컬럼 없음. API는 slug를 쓰지 않고 숫자 `event_id`만 받음(2026-10-02, 프런트 담당 확인) |
 | 쿠키·CORS | 출처가 달라 CORS·credentials 처리 필요 | 같은 출처 — host-only 쿠키 + SameSite=Lax 그대로, CORS 불필요 |
 | 대기 순번 | ZSET(`ZADD`/`ZRANK`/`ZPOPMIN`) | 전역 카운터(`INCR`) 기반 번호표 + 전역 서빙 커서 |
 | 순번 응답 | 개인화된 응답(1~2초 폴링) | 이벤트당 전역 값 1개(`{"cursor": number}`) — CloudFront에서 1초 캐시, 인증 없음 |
@@ -231,7 +231,7 @@ CREATE TABLE issuance_history (
   1-1. 클레임 `tenant_id`가 해당 이벤트의 `event.tenant_id`와 같은지 확인 — 다르면 거절(다른 테넌트 토큰으로 이 이벤트에 들어오는 것 차단, DB 정의서 수정본에서 `event.tenant_id` 추가로 가능해짐)
   2. `SET jti:{jti} 1 NX EX <exp까지 남은 초 + 시계 오차>` — 실패하면(이미 존재) 재사용 공격으로 간주, 401 `JWT_REUSED`
   3. 같은 `event_id` + `user_id`로 기존 세션이 있는지 확인(`session:idx:{eventId}:{userId}` → 세션이 살아 있는지까지) → 있으면 재사용(진입 카운터 증가 없음), 없으면 신규 세션 생성(TTL 2시간) + 진입 카운터 `entry:count:{eventId}` +1. 조회와 생성은 원자적이지 않음 — 정상 사용자 전제(진행 문서 Next Plan N1)
-  4. `Set-Cookie`(세션ID) + 302 (JWT 없는 대기방 주소로). 목적지는 values 파일 변수 `tetra.session.redirect-url`.
+  4. `Set-Cookie`(세션ID) + 302 (JWT 없는 대기방 주소로). 목적지는 values 파일 변수 `tetra.session.redirect-url` = **`/?event={eventId}`** (2026-10-02 확정). 도메인 첫 라벨은 UX용 해시값(event slug, 예 `k7f2q9`)이라 프런트가 숫자 `event_id`를 알 수 없으므로 쿼리로 넘긴다 — 프런트는 `?event=`를 최우선으로 읽고 03·04로 쿼리를 유지한다. 쿼리를 바꿔도 `SessionAuthFilter`가 세션의 이벤트와 다르면 403으로 막는다.
      - `Location`은 **반드시 상대 경로**(`/`로 시작, `//`로 시작하면 안 됨). 요청 Host로 절대 주소를 만들지 않음(오리진 Host가 들어오기 때문, 2절). 설정값이 상대 경로가 아니면 앱 기동 시 실패시킴.
      - `Set-Cookie`: `TETRA_SID=<세션ID 43자>; Path=/; Max-Age=7200; Secure; HttpOnly; SameSite=Lax`, **`Domain` 속성 없음**. `Secure`는 설정값으로 붙임.
      - **`Referrer-Policy: no-referrer`** (2026-10-01, 프론트 요청): 이 요청 URL에 JWT가 쿼리로 들어 있으므로, 이 주소가 Referer로 다른 곳(배너 이미지 서버, 테넌트 사이트 등)에 실려 나가지 않게 하는 값싼 보험. 302로 바로 넘어가 페이지로 열리지 않고, 브라우저 기본값(`strict-origin-when-cross-origin`)도 다른 사이트엔 도메인만 보내며, JWT는 1회용·1~2분 만료라 위험 자체는 작음. CloudFront 응답 헤더 정책으로 붙이면 이 경로만을 위한 behavior가 하나 더 필요해서 **Spring이 이 302 응답에 직접 붙임**.
@@ -331,7 +331,7 @@ CREATE TABLE issuance_history (
 | 커서 증가량(300/3초) | 추정치 | ✅ 설정값 분리 완료 — 부하테스트로 검증 후 values 파일만 조정 |
 | claim 입장 자격 재검증 | 설계 진행 중 | 생략(5절 4번) — 재고 Lua가 초과 발급은 막음 |
 | 구멍 비율 측정 | 선택 사항 | ✅ 구현 완료 (`scripts/ticket-stats.sh`) |
-| 302 목적지(대기방 경로) | 미정 | 임시값 `/` (`values.session.redirect-url`, 상대 경로만 허용) — 정해지면 values 파일만 교체 |
+| 302 목적지(대기방 경로) | ✅ 확정(2026-10-02) | `/?event={eventId}` (`values.session.redirect-url`, 상대 경로만 허용) |
 
 ---
 

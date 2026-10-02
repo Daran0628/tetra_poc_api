@@ -85,7 +85,7 @@ class SessionApiIntegrationTest {
 
 		var res = result.getResponse();
 		assertThat(res.getStatus()).isEqualTo(302);
-		assertThat(res.getHeader("Location")).isEqualTo("/");
+		assertThat(res.getHeader("Location")).isEqualTo("/?event=1"); // 숫자 event_id 를 쿼리로 (도메인 첫 라벨은 해시값)
 		assertThat(res.getHeader("Cache-Control")).isEqualTo("no-store");
 		assertThat(res.getHeader("Referrer-Policy")).isEqualTo("no-referrer");
 
@@ -178,7 +178,7 @@ class SessionApiIntegrationTest {
 				.with(r -> { r.setServerName("origin.gamza-dev.shop"); r.setScheme("http"); r.setSecure(false); return r; }))
 				.andReturn();
 
-		assertThat(result.getResponse().getHeader("Location")).isEqualTo("/");
+		assertThat(result.getResponse().getHeader("Location")).isEqualTo("/?event=1");
 		assertThat(result.getResponse().getHeader("Set-Cookie"))
 				.contains("Secure") // 요청이 http 여도 설정값으로 붙음
 				.doesNotContainIgnoringCase("Domain=")

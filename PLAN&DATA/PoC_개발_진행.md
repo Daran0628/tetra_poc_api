@@ -51,7 +51,7 @@
 
 | 변수 | 용도 | local 값 | 비고 |
 |---|---|---|---|
-| `tetra.session.redirect-url` | 세션 발급 후 302 목적지(대기방 경로 템플릿, `{eventId}` 치환). **상대 경로만 허용**(`/`로 시작, `//` 불가) | `/` (임시, 2026-10-01 — 절대 주소 `http://www.naver.com`에서 변경) | D6 — 나중에 값만 채우면 됨. 같은 호스트라 `/...` 상대 경로로 충분(0-3) |
+| `tetra.session.redirect-url` | 세션 발급 후 302 목적지(대기방 경로 템플릿, `{eventId}` 치환). **상대 경로만 허용**(`/`로 시작, `//` 불가) | `/?event={eventId}` (2026-10-02 확정 — 도메인 첫 라벨이 해시값이라 숫자 event_id를 쿼리로 넘김, 통합 문서 Q1) | D6 — 나중에 값만 채우면 됨. 같은 호스트라 `/...` 상대 경로로 충분(0-3) |
 | `tetra.session.cookie-name` | 세션 쿠키 이름 | `TETRA_SID` | D4 |
 | `tetra.session.ttl` | 세션 유지 시간 | `2h` | D4 |
 | `tetra.session.cookie-secure` | 쿠키 Secure 속성 | `true` | localhost는 브라우저가 보안 출처로 취급 |
@@ -466,3 +466,5 @@ PoC는 **정상 사용자만 있다는 전제**로 진행합니다(2026-10-01 �
 | 2026-10-01 | M7 전체 흐름 완료 — `FullFlowIntegrationTest`(1명·200명), `reset-local.sh`, `simulate-users.sh`. 전체 111개 테스트 통과. 1차 완료 기준 충족 |
 | 2026-10-01 | 플랜 문서를 실제 구현과 동기화 — 응답 형식·에러 코드 표, 4-1~4-5 처리 세부, 커서 Lua 예시, 6절 상태, 7절 실제 패키지 구조, 8절 워밍업 시점·실행 순서, 9절 진행 상태, 5절 11~13번 |
 | 2026-10-01 | ADR-0001·0002를 구현 결과와 동기화 (커서 Lua·Redis 클러스터 모드 전제·재고 유실 위험·오리진 Host·Referrer-Policy / 필터 세부·Store 계층·메모리 캐시·기동 시 설정 검증·라이브러리 선택·품절 200) |
+| 2026-10-01 | 프런트(`PoC_front/tetra-poc-front` 4238ddc) 통합 점검 — `PoC_개발_통합.md` 작성. 응답 래퍼 미처리 등 차단 5건(프런트 수정 필요), 결정 3건(Q1 호스트 event id 형식, Q2 시작 시각 출처, Q3 세션 실패 화면) |
+| 2026-10-02 | 통합 Q1 해결 — 도메인 첫 라벨은 UX용 해시(event slug, `event.subdomain`에 저장), API는 숫자 event_id. `redirect-url`을 `/?event={eventId}`로 확정, 테스트 112개 통과 |

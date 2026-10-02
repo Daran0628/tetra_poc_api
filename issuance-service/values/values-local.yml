@@ -32,8 +32,10 @@ values:
     # 반드시 "/" 로 시작하는 상대 경로만 (절대 주소·"//" 불가).
     #   CloudFront → ALB 구간에서 Host 가 오리진 주소(origin.gamza-dev.shop)로 바뀌어 들어오므로,
     #   절대 주소를 쓰거나 Host 로 주소를 만들면 브라우저가 오리진으로 이동해 버린다.
-    # TODO(임시, 2026-10-01): 대기방 경로가 정해지면 교체
-    redirect-url: /
+    # 대기방(02)은 루트(/). 도메인 첫 라벨은 UX용 해시값(event slug)이라 숫자 event_id 를 알 수 없으므로,
+    # 숫자 event_id 를 ?event= 로 넘긴다 — 프런트 getEventId() 가 ?event= 를 최우선으로 읽고 03·04 로 쿼리를 넘긴다.
+    # (2026-10-02 확정, 통합 문서 Q1)
+    redirect-url: /?event={eventId}
     cookie-name: TETRA_SID
     ttl: 2h
     cookie-secure: true        # localhost 는 브라우저가 보안 출처로 취급해 Secure 쿠키 허용
