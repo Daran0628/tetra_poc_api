@@ -99,8 +99,8 @@ public class IssuanceController {
 
 	/** 4-2 번호표 발급: 대기실(03 화면) 진입 시 호출. 재호출·새로고침 때마다 새 번호. */
 	@PostMapping("/events/{eventId}/ticket")
-	ApiResponse<TicketResponse> ticket(@PathVariable long eventId, HttpServletRequest request) {
-		return ApiResponse.ok(new TicketResponse(ticketService.issue(SessionAuthFilter.sessionOf(request))));
+	ResponseEntity<ApiResponse<TicketResponse>> ticket(@PathVariable long eventId, HttpServletRequest request) {
+		return noStore(new TicketResponse(ticketService.issue(SessionAuthFilter.sessionOf(request))));
 	}
 
 	record TicketResponse(long ticketNumber) {
@@ -125,17 +125,25 @@ public class IssuanceController {
 
 	/** 4-4 쿠폰 목록 + 잔여 수량(Redis 기준). */
 	@GetMapping("/events/{eventId}/coupons")
-	ApiResponse<CouponsResponse> coupons(@PathVariable long eventId) {
-		return ApiResponse.ok(new CouponsResponse(couponService.list(eventId)));
+	ResponseEntity<ApiResponse<CouponsResponse>> coupons(@PathVariable long eventId) {
+		return noStore(new CouponsResponse(couponService.list(eventId)));
 	}
 
 	record CouponsResponse(List<CouponView> coupons) {
 	}
 
-	/** 4-5 쿠폰 일괄 발급. 성공·품절 모두 200 (result 로 구분). 중복·번호표 없음은 409. */
+	/**
+	 * 4-5 쿠폰 일괄 발급. 성공·품절 모두 200 (result 로 구분). 번호표 없음은 409.
+	 * 이미 처리된 사용자가 다시 요청하면 처음 결과를 그대로 200 으로 돌려준다 (응답 유실 대비).
+	 */
 	@PostMapping("/events/{eventId}/coupons/claim")
-	ApiResponse<ClaimResult> claim(@PathVariable long eventId, HttpServletRequest request) {
-		return ApiResponse.ok(claimService.claim(SessionAuthFilter.sessionOf(request)));
+	ResponseEntity<ApiResponse<ClaimResult>> claim(@PathVariable long eventId, HttpServletRequest request) {
+		return noStore(claimService.claim(SessionAuthFilter.sessionOf(request)));
+	}
+
+	/** 사용자별 응답(번호표·쿠폰 목록·claim)은 어디에도 캐시되지 않게 (세션·에러 응답과 같은 규칙) */
+	private static <T> ResponseEntity<ApiResponse<T>> noStore(T data) {
+		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.ok(data));
 	}
 
 }

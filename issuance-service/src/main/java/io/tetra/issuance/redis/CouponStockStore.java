@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * 쿠폰 재고·claim Redis 키.
  * <pre>
  * coupon:stock:{eventId}:{couponId}   종류별 재고 (워밍업 때 coupon.stock_count 로 채움, claim 때만 DECR)
- * claim:done:{eventId}:{userId}       claim 처리된 사용자 (성공·품절 모두, TTL 없음 — Next Plan N4). 번호표 발급도 이 키를 보고 막는다
+ * claim:done:{eventId}:{userId}       claim 처리 결과 = 발급된 couponId 쉼표 목록, 품절이면 "" (TTL 없음 — Next Plan N4). 번호표 발급도 이 키를 보고 막는다
  * </pre>
  */
 @Component
@@ -58,20 +58,24 @@ public class CouponStockStore {
 		return result;
 	}
 
+	/** claim 결과. replay = 이미 처리된 사용자라 저장된 처음 결과를 돌려준 것. issued 가 비었으면 품절 */
+	public record ClaimOutcome(boolean replay, List<Long> issued) {
+	}
+
 	/**
-	 * 원자적 claim. @return empty = 이미 claim 한 사용자, 빈 목록 = 품절, 그 외 발급된 couponId 목록
+	 * 원자적 claim. 처음이면 재고를 차감하고 결과를 claim:done 에 저장, 이미 처리된 사용자면 저장된 결과를 그대로 돌려준다.
 	 */
-	public Optional<List<Long>> claim(long eventId, String userId, List<Long> couponIds) {
+	public ClaimOutcome claim(long eventId, String userId, List<Long> couponIds) {
 		List<String> keys = new ArrayList<>(couponIds.size() + 1);
 		keys.add(claimDoneKey(eventId, userId));
 		couponIds.forEach(id -> keys.add(stockKey(eventId, id)));
 		Object[] args = couponIds.stream().map(String::valueOf).toArray();
 
-		List<Long> issued = redis.execute(couponClaimScript, keys, args);
-		if (issued != null && issued.size() == 1 && issued.get(0) == -1L) {
-			return Optional.empty();
+		List<Long> reply = redis.execute(couponClaimScript, keys, args);
+		if (reply == null || reply.isEmpty()) {
+			throw new IllegalStateException("coupon-claim.lua returned no result");
 		}
-		return Optional.of(issued == null ? List.of() : List.copyOf(issued));
+		return new ClaimOutcome(reply.get(0) == 1L, List.copyOf(reply.subList(1, reply.size())));
 	}
 
 }

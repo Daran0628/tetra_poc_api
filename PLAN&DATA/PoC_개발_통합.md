@@ -269,6 +269,20 @@ getQueueCursor→ parseCursorResponse((body as ApiOk<unknown>).data)  // index.h
 
 ---
 
+## 2-8. 백엔드 변경 알림 — 인프라 요청 반영 (2026-10-06)
+
+프런트에 전달할 것 (코드 수정 필요 없음, 동작만 바뀜):
+
+| 변경 | 프런트 영향 |
+|---|---|
+| **claim을 다시 부르면 처음 결과를 200으로** 돌려준다(성공이면 같은 `coupons`, 품절이면 `SOLD_OUT`). 전에는 409 `ALREADY_CLAIMED` | claim 응답을 못 받았을 때(네트워크 끊김·타임아웃) **다시 claim해서 결과를 확정**할 수 있다. 5xx·네트워크 오류 재시도 규칙 그대로 두면 됨. claim에서 `ALREADY_CLAIMED` 처리 코드는 남겨 둬도 무해 |
+| 재입장해서 **번호표**를 요청하면 여전히 409 `ALREADY_CLAIMED` | 변경 없음 (중립 문구 유지) |
+| 번호표·쿠폰 목록·claim 성공 응답에 `Cache-Control: no-store` | 영향 없음 |
+
+2-2절의 "이전 결과를 다시 조회하는 API는 없다"는 이 변경으로 claim 재호출이 그 역할을 한다.
+
+---
+
 ## 2-7. 프런트 재점검 — `088d08a` (2026-10-02)
 
 | 확인 | 결과 |
@@ -293,7 +307,7 @@ getQueueCursor→ parseCursorResponse((body as ApiOk<unknown>).data)  // index.h
 | `GET /api/issuance/events/{eventId}/info` | `{"eventId":1,"name":"…","startAt":"2026-09-29T10:00:00+09:00","endAt":"…+09:00","bannerUrl":"","returnUrl":""}` — `Cache-Control: public, max-age=0, s-maxage=60` (2026-10-02 구현) | 404 `EVENT_NOT_FOUND`, 400 | 없음 |
 | `GET /api/issuance/events/{eventId}/queue/cursor` | `{"cursor":300}` — `Cache-Control: public, max-age=0, s-maxage=1` | 404 `EVENT_NOT_FOUND`, 400 `INVALID_REQUEST` | 없음 |
 | `GET /api/issuance/events/{eventId}/coupons` | `{"coupons":[{"couponId":1,"name":"PoC 쿠폰 1","description":"PoC 쿠폰입니다.","remaining":10}, …]}` (couponId 순) | 401, 403 | 쿠키 |
-| `POST /api/issuance/events/{eventId}/coupons/claim` | 성공 `{"result":"SUCCESS","coupons":[{"couponId","name","description"}, …]}` / 품절 `{"result":"SOLD_OUT","coupons":[]}` — **둘 다 200** | 401, 403, 409 `EVENT_ENDED`·`TICKET_REQUIRED`·`ALREADY_CLAIMED` | 쿠키 |
+| `POST /api/issuance/events/{eventId}/coupons/claim` | 성공 `{"result":"SUCCESS","coupons":[{"couponId","name","description"}, …]}` / 품절 `{"result":"SOLD_OUT","coupons":[]}` — **둘 다 200** | 401, 403, 409 `EVENT_ENDED`·`TICKET_REQUIRED`. 다시 부르면 **처음 결과를 그대로 200**(2026-10-06, `ALREADY_CLAIMED` 안 옴) | 쿠키 |
 
 ---
 
@@ -391,6 +405,7 @@ bash scripts/issue-test-jwt.sh user-0001 1 poctenant001 90 http://localhost:5173
 
 | 날짜 | 내용 |
 |---|---|
+| 2026-10-06 | 2-8절 추가 — claim 재호출 시 처음 결과 200(인프라 B3), 성공 응답 no-store. 3절 계약표 갱신 |
 | 2026-10-02 | 2-7절 추가 — 프런트 `088d08a` 재점검: `/info` 실제 호출·응답 검증·02 실패 처리 확인, 컨테이너 대상 브라우저 확인. 프런트 남은 일 없음. 7절에 컨테이너 방식 추가 |
 | 2026-10-02 | 2-6절 추가 — 테넌트 메인 페이지 입장 연동 규격(GET 히든폼)과 사내망 테스트 성공 결과, 서버 시계 이슈 |
 | 2026-10-01 | 최초 작성 — 프런트 `4238ddc` 기준 통합 점검 (차단 5, 기능 2, 확인 4), 확정 계약·해야 할 일·결정 3건 |

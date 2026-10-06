@@ -3,6 +3,7 @@ package io.tetra.issuance.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -70,7 +71,8 @@ class CouponClaimIntegrationTest {
 		String userId = "user-" + UUID.randomUUID();
 		String sid = sessionStore.create("poctenant001", 1L, userId, Duration.ofMinutes(10));
 		mockMvc.perform(post("/api/issuance/events/1/ticket").cookie(new Cookie("TETRA_SID", sid)))
-				.andExpect(status().isOk());
+				.andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"));
 		return new User(userId, sid);
 	}
 
@@ -107,6 +109,7 @@ class CouponClaimIntegrationTest {
 
 		mockMvc.perform(get("/api/issuance/events/1/coupons").cookie(new Cookie("TETRA_SID", user.sid())))
 				.andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"))
 				.andExpect(jsonPath("$.data.coupons.length()").value(10))
 				.andExpect(jsonPath("$.data.coupons[0].couponId").value(1))
 				.andExpect(jsonPath("$.data.coupons[0].name").value("PoC 쿠폰 1"))
@@ -165,16 +168,43 @@ class CouponClaimIntegrationTest {
 	}
 
 	@Test
-	void 같은_사용자가_두_번_claim하면_두_번째는_409이고_재고와_이력이_늘지_않는다() throws Exception {
+	void 같은_사용자가_다시_claim하면_처음_결과를_그대로_돌려주고_재고와_이력이_늘지_않는다() throws Exception {
 		User user = userWithTicket();
-		claim(user);
+		String first = claim(user);
 
-		mockMvc.perform(post("/api/issuance/events/1/coupons/claim").cookie(new Cookie("TETRA_SID", user.sid())))
-				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.error.code").value("ALREADY_CLAIMED"));
+		String second = mockMvc.perform(post("/api/issuance/events/1/coupons/claim").cookie(new Cookie("TETRA_SID", user.sid())))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Cache-Control", "no-store"))
+				.andReturn().getResponse().getContentAsString();
+		assertThat((Object) JsonPath.read(second, "$.data")).isEqualTo(JsonPath.read(first, "$.data"));
+		assertThat((String) JsonPath.read(second, "$.data.result")).isEqualTo("SUCCESS");
 		assertThat(redis.opsForValue().get(CouponStockStore.stockKey(1, 1))).isEqualTo("9");
 		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM issuance_history WHERE user_id = ?",
 				Integer.class, user.userId())).isEqualTo(1);
+	}
+
+	@Test
+	void 품절로_처리된_사용자가_다시_claim하면_SOLD_OUT을_그대로_돌려준다() throws Exception {
+		setAllStock(0);
+		User user = userWithTicket();
+		claim(user);
+		setAllStock(5); // 그 사이 재고가 생겨도 처음 결과(품절)는 바뀌지 않는다
+
+		mockMvc.perform(post("/api/issuance/events/1/coupons/claim").cookie(new Cookie("TETRA_SID", user.sid())))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.result").value("SOLD_OUT"))
+				.andExpect(jsonPath("$.data.coupons.length()").value(0));
+		assertThat(redis.opsForValue().get(CouponStockStore.stockKey(1, 1))).isEqualTo("5");
+	}
+
+	@Test
+	void 다시_claim하면_빠진_이력을_채운다() throws Exception {
+		User user = userWithTicket();
+		claim(user);
+		jdbcTemplate.update("DELETE FROM issuance_history WHERE user_id = ?", user.userId()); // 처음 INSERT 실패 흉내
+
+		claim(user);
+		assertThat(historyOf(user.userId()).get("result")).isEqualTo("SUCCESS");
 	}
 
 	@Test

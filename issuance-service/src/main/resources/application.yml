@@ -13,9 +13,15 @@ spring:
     import: file:./values/values-${TETRA_ENV:local}.yml
 
   datasource:
-    url: jdbc:mysql://${values.db.host}:${values.db.port}/${values.db.name}?connectionTimeZone=${values.timezone}&characterEncoding=UTF-8
+    url: jdbc:mysql://${values.db.host}:${values.db.port}/${values.db.name}?connectionTimeZone=${values.timezone}&characterEncoding=UTF-8&sslMode=${values.db.ssl-mode}
     username: ${values.db.username}
     password: ${values.db.password}
+    hikari:
+      maximum-pool-size: ${values.db.pool-size}   # Pod 수 상한 = RDS max_connections ÷ 이 값 (인프라 10-3절)
+
+  # 종료 신호를 받으면 새 요청은 받지 않고, 처리 중인 요청을 이 시간까지 기다린 뒤 내려간다 (server.shutdown: graceful)
+  lifecycle:
+    timeout-per-shutdown-phase: ${values.shutdown-timeout}
 
   jpa:
     hibernate:
@@ -39,7 +45,11 @@ spring:
 # 기본값(false)이면 sendRedirect("/") 를 Tomcat 이 "http://{Host}/" 절대 주소로 바꿔
 # 브라우저가 오리진으로 이동해 버리므로, 상대 경로를 그대로 내보내도록 고정한다.
 server:
+  shutdown: graceful            # Boot 기본값이지만 배포 전제(preStop·terminationGracePeriod)라 명시
   tomcat:
+    # 유휴 keep-alive 연결을 닫기까지의 시간. ALB 유휴 시간(60초)보다 길어야 한다 — 같거나 짧으면
+    # ALB 가 재사용하려던 연결을 앱이 먼저 닫아 간헐적으로 502 가 난다 (Tomcat 기본은 60초)
+    keep-alive-timeout: ${values.tomcat-keep-alive-timeout}
     use-relative-redirects: true
     # 접근 로그는 기본 꺼짐. 켜더라도 쿼리스트링이 남지 않게 %U(경로만)를 쓴다 — 기본 형식의 %r 은
     # "GET /api/issuance/session?JWT=..." 처럼 토큰까지 기록함 (플랜 4-1 쿼리스트링 마스킹)

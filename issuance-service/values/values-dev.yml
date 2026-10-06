@@ -1,0 +1,55 @@
+# =====================================================================
+# Issuance Service — 클라우드(EKS, 인프라 문서 10절) 환경 values
+# ---------------------------------------------------------------------
+# K8s 차트가 이 파일을 ConfigMap issuance-values 로 만들어 /app/values/ 에 마운트한다 (TETRA_ENV=dev).
+# 비밀값은 여기에 두지 않는다 — Secret issuance-db → 환경변수 VALUES_DB_PASSWORD 가
+# values.db.password 를 덮어쓴다 (환경변수가 이 파일보다 우선).
+# =====================================================================
+values:
+
+  db:
+    host: tetra-poc-mysql.clm24mykstr4.ap-northeast-2.rds.amazonaws.com   # RDS MySQL 8.4
+    port: 3306
+    name: tetra_poc
+    username: tetra_app        # 앱 전용 계정 (SELECT·INSERT·UPDATE). 마스터 계정은 비밀번호 자동 교체라 쓰지 않음
+    password: ""               # 비워 둠 → Secret 환경변수 VALUES_DB_PASSWORD 로 주입
+    ssl-mode: REQUIRED         # 8.4 계정이 caching_sha2_password — TLS로 붙어야 allowPublicKeyRetrieval 없이 접속
+    pool-size: 10              # maxReplicas × 이 값 ≤ max_connections(630) − 여유 → 풀 10이면 Pod 50개 이하
+
+  redis:
+    host: redis                # 같은 Namespace 의 Service redis (StatefulSet valkey 7.2)
+    port: 6379
+
+  timezone: Asia/Seoul
+
+  # preStop 15초 + 이 값(20초) < terminationGracePeriodSeconds 45초
+  shutdown-timeout: 20s
+
+  # Tomcat keep-alive 유휴 시간 — ALB 유휴 시간(60초)보다 길게
+  tomcat-keep-alive-timeout: 65s
+
+  session:
+    redirect-url: /?event={eventId}
+    cookie-name: TETRA_SID
+    ttl: 2h
+    cookie-secure: true
+
+  queue:
+    cursor-step: 300
+    cursor-window: 3s
+    cursor-cache-s-maxage: 1s
+
+  event:
+    info-cache-s-maxage: 60s
+
+  jwt:
+    user-id-max-length: 128
+    clock-skew: 5s
+    max-ttl: 5m
+    test-private-key-path: ""  # 배포 환경은 테스트 토큰 발급 경로를 쓰지 않음
+
+  management:
+    health-show-details: never # 외부에는 전체 UP·DOWN만 (구성요소 노출 방지)
+
+  stock:
+    warmup-mode: if-absent     # Pod 재시작·스케일아웃해도 차감분 유지 (force 금지)

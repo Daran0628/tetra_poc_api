@@ -17,6 +17,8 @@ values:
     name: tetra_poc
     username: tetra
     password: tetra            # 로컬 전용. 배포 환경은 Secret 으로 주입
+    ssl-mode: PREFERRED        # PREFERRED: 서버가 TLS를 지원하면 TLS, 아니면 평문 (MySQL 드라이버 기본값). 배포(dev)는 REQUIRED
+    pool-size: 10              # HikariCP 최대 커넥션 수 (Pod 1개당)
 
   # --- Redis / Valkey (docker-compose 의 valkey 서비스) ----------------
   redis:
@@ -25,6 +27,13 @@ values:
 
   # --- 시간대 (DB 저장 타임존 KST 와 맞춤, 진행 문서 M0-1 S3) ----------
   timezone: Asia/Seoul
+
+  # --- 종료 (graceful shutdown) -----------------------------------------
+  # 처리 중인 요청을 기다리는 최대 시간. 배포는 preStop 15초 + 이 값 < terminationGracePeriodSeconds 45초
+  shutdown-timeout: 20s
+
+  # Tomcat keep-alive 유휴 시간 — ALB 유휴 시간(60초)보다 길게
+  tomcat-keep-alive-timeout: 65s
 
   # --- 세션 (D4·D6) ----------------------------------------------------
   session:

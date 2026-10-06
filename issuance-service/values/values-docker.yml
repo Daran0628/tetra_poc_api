@@ -12,12 +12,19 @@ values:
     name: tetra_poc
     username: tetra
     password: tetra            # 로컬 전용
+    ssl-mode: PREFERRED        # local과 같음 (dev는 REQUIRED)
+    pool-size: 10              # HikariCP 최대 커넥션 수 (Pod 1개당)
 
   redis:
     host: valkey               # docker-compose 서비스 이름
     port: 6379
 
   timezone: Asia/Seoul
+
+  shutdown-timeout: 20s
+
+  # Tomcat keep-alive 유휴 시간 — ALB 유휴 시간(60초)보다 길게
+  tomcat-keep-alive-timeout: 65s
 
   session:
     redirect-url: /?event={eventId}

@@ -26,8 +26,10 @@ import io.tetra.issuance.service.CouponCatalog.CouponInfo;
  * <ol>
  * <li>이벤트 종료(end_at) 후면 409 EVENT_ENDED — 재고·claim:done·이력 모두 그대로 (B1)</li>
  * <li>번호표 없는 세션이면 409 TICKET_REQUIRED (queue_entered_at 이 없어 이력을 남길 수 없음, M0-3)</li>
- * <li>Lua: 중복 claim 차단 + 재고가 남은 종류마다 1장씩 차감 (D8)</li>
- * <li>결과 확정 즉시 issuance_history 1행 INSERT (성공·품절 모두, served_at NULL)</li>
+ * <li>Lua: 재고가 남은 종류마다 1장씩 차감하고 결과를 claim:done 에 저장 (D8). 이미 처리된 사용자면 차감 없이
+ * 저장된 처음 결과를 그대로 돌려준다 — 응답을 못 받고 다시 요청해도 같은 결과 (인프라 문서 B3)</li>
+ * <li>issuance_history 1행 INSERT (성공·품절 모두, served_at NULL). 다시 요청한 경우에도 시도해, 처음 INSERT 가
+ * 실패했으면 이때 채워진다 (UNIQUE 라 중복 행은 생기지 않음)</li>
  * </ol>
  * Redis 차감 후 INSERT 가 실패해도 발급 결과는 그대로 응답하고 에러 로그만 남긴다 (PoC 방침, ADR-0002 트레이드오프).
  */
@@ -71,9 +73,9 @@ public class ClaimService {
 			throw new BusinessException(ErrorCode.TICKET_REQUIRED);
 		}
 		List<CouponInfo> coupons = catalog.coupons(session.eventId());
-		List<Long> issuedIds = stockStore
-				.claim(session.eventId(), session.userId(), coupons.stream().map(CouponInfo::couponId).toList())
-				.orElseThrow(() -> new BusinessException(ErrorCode.ALREADY_CLAIMED));
+		CouponStockStore.ClaimOutcome outcome = stockStore
+				.claim(session.eventId(), session.userId(), coupons.stream().map(CouponInfo::couponId).toList());
+		List<Long> issuedIds = outcome.issued();
 
 		Result result = issuedIds.isEmpty() ? Result.SOLD_OUT : Result.SUCCESS;
 		recordHistory(session, result);

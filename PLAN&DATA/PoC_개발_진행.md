@@ -52,7 +52,9 @@
 
 - 구조: `application.yml`에는 구조와 `${...}` 참조만 둡니다. 실제 값은 `values/values-{환경}.yml`에서 읽습니다(`spring.config.import`로 불러옴).
   - `values/values-local.yml`: 로컬 docker-compose용, M1에서 생성
-  - `values/values-dev.yml`, `values/values-prod.yml`: 배포 단계에서 추가(EKS에서는 ConfigMap/Secret으로 주입)
+  - `values/values-docker.yml`: 로컬 컨테이너용(M10). local과 같고 DB·Redis 호스트만 서비스 이름
+  - `values/values-dev.yml`: 클라우드 EKS용(2026-10-06 추가, M11). ConfigMap으로 `/app/values/`에 마운트, 비밀번호는 Secret → 환경변수 `VALUES_DB_PASSWORD`(환경변수가 파일 값보다 우선)
+  - `values/values-prod.yml`: 필요해지면 추가
 - 비밀값(DB 비밀번호, 개인키 경로)은 로컬 파일에만 두고, 배포 환경에서는 Secret으로 넘깁니다.
 
 | 변수 | 용도 | local 값 | 비고 |
@@ -71,8 +73,12 @@
 | `tetra.timezone` | 앱·JDBC 타임존 | `Asia/Seoul` | DB 저장 타임존 KST와 맞춤(M0-1 S3) |
 | `management.endpoint.health.show-details` | `/actuator/health`에 db·redis 상세 상태 표시 여부 (values 키 `values.management.health-show-details`) | `always` | 배포 환경은 `never` 권장(내부 구성 노출 방지) |
 | `tetra.stock.warmup-mode` | 재고 워밍업 방식 | `if-absent` | `force`는 로컬 초기화용 |
-| `spring.datasource.url` / `username` / `password` | MySQL 접속 | docker-compose 값 | 배포 시 RDS |
-| `spring.data.redis.host` / `port` | Redis 접속 | `localhost` / `6379` | 배포 시 ElastiCache |
+| `spring.datasource.url` / `username` / `password` | MySQL 접속 | docker-compose 값 | dev: RDS `tetra-poc-mysql…rds.amazonaws.com`, 계정 `tetra_app`, 비밀번호는 Secret |
+| `sslMode` (JDBC URL, values 키 `values.db.ssl-mode`) | MySQL TLS 사용 방식 | `PREFERRED` (드라이버 기본값과 같음) | dev `REQUIRED` — RDS 8.4 계정이 `caching_sha2_password`라 TLS면 `allowPublicKeyRetrieval` 불필요 |
+| `spring.datasource.hikari.maximum-pool-size` (values 키 `values.db.pool-size`) | Pod 1개당 DB 커넥션 수 | `10` | `maxReplicas × 값 ≤ RDS max_connections(630) − 여유` → 10이면 Pod 50개 이하 |
+| `spring.lifecycle.timeout-per-shutdown-phase` (values 키 `values.shutdown-timeout`) | graceful 종료 시 처리 중 요청을 기다리는 최대 시간 (`server.shutdown: graceful`) | `20s` | 배포: preStop 15초 + 20초 < `terminationGracePeriodSeconds` 45초 |
+| `server.tomcat.keep-alive-timeout` (values 키 `values.tomcat-keep-alive-timeout`) | 유휴 keep-alive 연결 유지 시간 | `65s` | ALB 유휴 시간(60초)보다 길게 — 같으면 간헐 502 (인프라 B2) |
+| `spring.data.redis.host` / `port` | Redis 접속 | `localhost` / `6379` | dev: 클러스터 안 Service `redis` |
 
 새 변수가 생기면 이 표와 values 파일에 함께 추가합니다.
 
@@ -439,7 +445,18 @@ PDF 8장 Seed를 읽으며 구현에 영향을 주는 점을 정리했습니다.
 
 - [ ] 이미지 레지스트리(ECR) 푸시
 - [ ] K8s 매니페스트 또는 Helm 차트 — Deployment(liveness·readiness 프로브 = `/actuator/health` 그룹), Service, TargetGroupBinding(2026-10-06: ALB는 internal + CloudFront VPC Origins, 기본 인프라 TF가 고정 — Ingress 안 씀, `PoC_infra/PLAN&DATA/PoC_인프라_플로우.md` 5-2절). 인프라 담당이 GitOps로 관리하면 앱 쪽은 이미지·values만 제공
-- [ ] `values-dev.yml` — RDS 주소, Redis는 클러스터 안 Service `redis`, `health-show-details: never`, 비밀값은 Secret
+- [x] 인프라 요청 반영 (인프라 문서 10-7절, 2026-10-06)
+  - [x] `values-dev.yml` — RDS `tetra-poc-mysql.clm24mykstr4.ap-northeast-2.rds.amazonaws.com`, 계정 `tetra_app`(비밀번호 빈 값 → Secret `VALUES_DB_PASSWORD`), `ssl-mode: REQUIRED`, Redis `redis`, `health-show-details: never`, `test-private-key-path: ""`
+  - [x] `server.shutdown: graceful` 명시 + 종료 대기 `values.shutdown-timeout`(20초) — Boot 기본 30초면 preStop 15초와 합쳐 grace 45초에 여유가 없어 줄임
+  - [x] 커넥션 풀 `values.db.pool-size`(10), JDBC `sslMode=${values.db.ssl-mode}`(local·docker `PREFERRED` — 기존 동작과 같음)
+  - [x] 확인: 테스트 128개 통과. 컨테이너 재빌드 후 `/actuator/health/liveness`·`/readiness` 200 UP. `VALUES_DB_SSL_MODE=REQUIRED`로 로컬 MySQL 8.0에 붙여 커넥션 10개 모두 TLSv1.3(풀 크기 적용도 확인). `VALUES_DB_PASSWORD` 환경변수가 values 값을 덮어씀(틀린 값 → Access denied). `docker stop` 시 `Commencing graceful shutdown … complete`
+  - 인프라에 회신: readiness 그룹은 기본(앱 상태만) 유지 — 기동 시에는 DB 구조 검사·Redis 재고 워밍업이 끝나야 Ready라 보장됨. 운영 중 Redis 일시 장애로 모든 Pod가 한꺼번에 대상에서 빠지는 것을 피하려고 db·redis는 넣지 않음
+  - 남은 확인: RDS 8.4에 `REQUIRED`로 실제 접속(M11 배포 때)
+- [x] 인프라 2차 요청 반영 (2026-10-06)
+  - [x] B1 번호표·쿠폰 목록·claim 성공 응답 `Cache-Control: no-store`
+  - [x] B2 `server.tomcat.keep-alive-timeout` 65초(values 변수, local·docker·dev) — 컨테이너에서 62초 쉰 연결을 재사용해 200 확인
+  - [x] B3 claim 재요청 시 처음 결과 그대로 200 — `claim:done` 값에 발급 couponId 목록 저장(품절은 빈 문자열), 재요청 때 이력 INSERT도 다시 시도(빠진 이력 보충). 번호표 재요청은 여전히 409 `ALREADY_CLAIMED`. 프런트 알림은 통합 문서 2-8절
+  - [x] 테스트 130개 통과(재claim 성공·품절 유지·이력 보충 추가, no-store 검사 추가)
 - [ ] Redis — 2026-10-06 결정: ElastiCache 대신 **EKS 안 Pod**(StatefulSet 1개, `valkey/valkey:7.2`, 클러스터 모드 아님 — Lua 다중 키, Next Plan N2). 인프라 상세는 `PoC_infra/PLAN&DATA/PoC_인프라_플로우.md`
 - [ ] CloudFront behavior(플랜 2절) 적용·확인: cursor 캐시 `x-cache: Hit`, `/api/*` 404가 index.html로 안 바뀜, 오리진 Host에서도 `Location` 상대 경로·쿠키 Domain 없음
 - [ ] 실제 이벤트 데이터: `event.public_key`(테넌트 공개키), `event.subdomain`(`{event_slug}.{tenant_id}`)
@@ -569,3 +586,5 @@ PoC는 **정상 사용자만 있다는 전제**로 진행합니다(2026-10-01 �
 | 2026-10-02 | M10 진행 — Dockerfile·.dockerignore·values-docker.yml·compose `app` 프로필·.gitattributes 추가, 이미지 빌드 성공. 기동 확인은 로컬 bootRun 종료 후 |
 | 2026-10-02 | M13 테넌트 입장 연동 테스트(사내망) 완료 — GET 히든폼, 테넌트 키페어, 서버 시계 15분 오차 발견·NTP 동기화, `user-7bc6360420b4` 세션 생성 확인. 브라우저 전체 흐름은 M11로. Next Plan 중복 번호 N5 → N6 정리 |
 | 2026-10-02 | M10 완료 — 컨테이너 기동·health UP, simulate-users 200명(SUCCESS 10/SOLD_OUT 190), 프런트 `088d08a` 빌드본으로 02→03→04 브라우저 확인, 재시작 재고 유지, 로그 토큰 0건. 플랜 8절 "컨테이너로 실행" 추가 |
+| 2026-10-06 | M11 인프라 요청(10-7절) 반영 — `values-dev.yml`, graceful 종료(20초), 풀 크기·`sslMode` values 변수화, Probe 경로 확인. 테스트 128개 통과 |
+| 2026-10-06 | 인프라 2차 요청 반영 — 성공 응답 no-store, keep-alive 65초, claim 재요청 시 처음 결과 200. 테스트 130개 통과 |

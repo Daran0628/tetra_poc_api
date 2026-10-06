@@ -207,7 +207,7 @@ CREATE TABLE issuance_history (
   | 405 | `METHOD_NOT_ALLOWED` | 허용 안 된 메서드 |
   | 409 | `EVENT_NOT_STARTED` | 이벤트 시작 전 번호표 요청 |
   | 409 | `EVENT_ENDED` | 이벤트 종료(`end_at`) 후 번호표·claim 요청 (2026-10-02 구현) |
-  | 409 | `TICKET_REQUIRED` / `ALREADY_CLAIMED` | 번호표 없이 claim / 이미 claim 처리됨(claim과 **번호표** 둘 다에서 옴) |
+  | 409 | `TICKET_REQUIRED` / `ALREADY_CLAIMED` | 번호표 없이 claim / 이미 claim 처리된 사용자의 **번호표** 요청 (claim을 다시 부르면 409가 아니라 처음 결과를 200으로, 2026-10-06) |
   | 500 | `INTERNAL_ERROR` | 예상하지 못한 오류(내부 정보는 응답에 넣지 않음) |
 
 ### 4-0. `GET /api/issuance/events/{eventId}/info` — 이벤트 정보 (2026-10-02 확정)
@@ -313,11 +313,12 @@ CREATE TABLE issuance_history (
 - 서버 시각이 `event.end_at` 이상이면 Lua 전에 409 `EVENT_ENDED`(B1, 4-2와 같은 판정). 재고·`claim:done`·발급 이력 모두 바뀌지 않는다.
 - 세션에 번호표가 없으면 Lua 전에 409 `TICKET_REQUIRED`(`queue_entered_at`이 없어 이력을 남길 수 없음).
 - **Lua 스크립트 1개**(`coupon-claim.lua`)로 원자적 처리:
-  1. `SET claim:done:{eventId}:{userId} 1 NX` — 이미 처리된 사용자면 즉시 거절(409 `ALREADY_CLAIMED`). 성공·품절 모두 표시하며 TTL 없음(재입장 후 중복 claim도 막기 위해, 정리는 Next Plan N4)
-  2. 쿠폰 종류별로 `coupon:stock:{eventId}:{couponId}`가 0보다 크면 `DECR`해 1장씩 발급(D8), 모두 0이면 품절. 재고는 음수가 되지 않음
-  3. 발급된 couponId 목록 반환(빈 목록 = 품절)
-- 응답: 성공·품절 모두 **200** (2026-10-01 확정). 성공 `{"result":"SUCCESS","coupons":[{"couponId","name","description"}, ...]}`, 품절 `{"result":"SOLD_OUT","coupons":[]}` (공통 형식 `data` 안). 대부분 사용자가 품절을 받는 것이 정상 시나리오라 에러로 다루지 않음. 중복 claim(`ALREADY_CLAIMED`)·번호표 없음(`TICKET_REQUIRED`)은 409 에러.
-- **MySQL 쓰기**: 이 호출이 완료되는 순간(성공이든 품절이든) `issuance_history`에 1행 INSERT — `tenant_id`/`event_id`/`user_id`/`ticket_number`/`queue_entered_at`은 세션에서, `served_at`=NULL(PoC 미사용), `result`=`SUCCESS`/`FAILED_SOLDOUT`. `(event_id, user_id)` UNIQUE 중복 키 오류(1062)는 "이미 기록됨"으로 처리(3절). Redis 차감 후 INSERT가 다른 이유로 실패하면 발급 결과는 그대로 응답하고 에러 로그만 남김(재시도·보상 없음, ADR-0002 트레이드오프).
+  1. `claim:done:{eventId}:{userId}`가 있으면 이미 처리된 사용자 — 재고를 건드리지 않고 **저장된 처음 결과를 그대로 반환**(2026-10-06, 인프라 요청 B3: 응답을 못 받고 다시 요청해도 같은 결과)
+  2. 없으면 쿠폰 종류별로 `coupon:stock:{eventId}:{couponId}`가 0보다 크면 `DECR`해 1장씩 발급(D8), 모두 0이면 품절. 재고는 음수가 되지 않음
+  3. 결과를 `claim:done`에 저장 — 값 = 발급된 couponId 쉼표 목록(품절이면 빈 문자열). TTL 없음(정리는 Next Plan N4). 번호표 발급도 이 키로 재입장을 막는다
+  4. `{처음 0 | 다시 1, couponId...}` 반환
+- 응답: 성공·품절 모두 **200** (2026-10-01 확정). 성공 `{"result":"SUCCESS","coupons":[{"couponId","name","description"}, ...]}`, 품절 `{"result":"SOLD_OUT","coupons":[]}` (공통 형식 `data` 안). 대부분 사용자가 품절을 받는 것이 정상 시나리오라 에러로 다루지 않음. 번호표 없음(`TICKET_REQUIRED`)은 409 에러. 같은 사용자가 다시 claim하면 처음 결과를 그대로 200으로 돌려준다(에러 아님). 성공 응답은 `Cache-Control: no-store`(번호표·쿠폰 목록도 같음, 2026-10-06).
+- **MySQL 쓰기**: 이 호출이 완료되는 순간(성공이든 품절이든) `issuance_history`에 1행 INSERT — `tenant_id`/`event_id`/`user_id`/`ticket_number`/`queue_entered_at`은 세션에서, `served_at`=NULL(PoC 미사용), `result`=`SUCCESS`/`FAILED_SOLDOUT`. `(event_id, user_id)` UNIQUE 중복 키 오류(1062)는 "이미 기록됨"으로 처리(3절). 다시 claim한 경우에도 INSERT를 시도하므로, 처음 INSERT가 실패했다면 이때 채워진다. Redis 차감 후 INSERT가 다른 이유로 실패하면 발급 결과는 그대로 응답하고 에러 로그만 남김(재시도·보상 없음, ADR-0002 트레이드오프).
 - **미확정 항목**: "입장 자격 재검증"(번호 순서가 실제로 됐는지 claim 시점에 다시 확인할지)은 API 정의서에 "설계 진행 중"으로 남아있습니다. PoC 구현 기본값은 **생략**(세션 쿠키 유효성만 확인하고, 순서는 재검증하지 않음)으로 하고 진행합니다 — 순서를 어긴 입장이 있어도 재고 Lua가 초과발급은 막아주므로 PoC 안정성에는 영향 없습니다(이번 대화에서 결론 남). 재검증 로직이 필요해지면 이 claim Lua 앞단에 별도 체크를 추가하면 됩니다.
 
 ---

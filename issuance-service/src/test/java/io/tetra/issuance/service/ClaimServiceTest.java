@@ -46,7 +46,7 @@ class ClaimServiceTest {
 	ClaimService serviceAt(LocalDateTime now) {
 		when(events.find(1L)).thenReturn(Optional.of(new EventMeta(1L, "poctenant001", START, END, null)));
 		when(catalog.coupons(1L)).thenReturn(List.of(new CouponInfo(1L, "PoC 쿠폰 1", "PoC 쿠폰입니다.", 10)));
-		when(stockStore.claim(anyLong(), anyString(), anyList())).thenReturn(Optional.of(List.of(1L)));
+		when(stockStore.claim(anyLong(), anyString(), anyList())).thenReturn(new CouponStockStore.ClaimOutcome(false, List.of(1L)));
 		return new ClaimService(events, catalog, stockStore, historyRepository,
 				Clock.fixed(now.atZone(KST).toInstant(), KST));
 	}
