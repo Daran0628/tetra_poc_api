@@ -203,6 +203,39 @@ class CouponClaimIntegrationTest {
 	}
 
 	@Test
+	void claim을_처리받은_사용자는_번호표를_다시_받을_수_없고_번호도_소모되지_않는다() throws Exception {
+		User user = userWithTicket();
+		claim(user);
+		long seqBefore = Long.parseLong(redis.opsForValue().get("ticket:seq:1"));
+
+		mockMvc.perform(post("/api/issuance/events/1/ticket").cookie(new Cookie("TETRA_SID", user.sid())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error.code").value("ALREADY_CLAIMED"));
+		assertThat(Long.parseLong(redis.opsForValue().get("ticket:seq:1"))).isEqualTo(seqBefore);
+	}
+
+	@Test
+	void 품절로_처리된_사용자도_번호표를_다시_받을_수_없다() throws Exception {
+		setAllStock(0);
+		User user = userWithTicket();
+		claim(user);
+
+		mockMvc.perform(post("/api/issuance/events/1/ticket").cookie(new Cookie("TETRA_SID", user.sid())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error.code").value("ALREADY_CLAIMED"));
+	}
+
+	@Test
+	void claim_후에도_쿠폰_목록은_정상으로_조회된다() throws Exception {
+		User user = userWithTicket();
+		claim(user);
+
+		mockMvc.perform(get("/api/issuance/events/1/coupons").cookie(new Cookie("TETRA_SID", user.sid())))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.coupons[0].remaining").value(9));
+	}
+
+	@Test
 	void 동시에_150명이_claim해도_초과_발급이_없다() throws Exception {
 		List<User> users = new ArrayList<>();
 		for (int i = 0; i < 150; i++) {

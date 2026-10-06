@@ -47,9 +47,9 @@ class JwtAuthFilterTest {
 	void setUp() {
 		when(events.find(anyLong())).thenReturn(Optional.empty());
 		when(events.find(1L)).thenReturn(Optional.of(new EventMeta(1L, "poctenant001",
-				LocalDateTime.of(2026, 9, 29, 10, 0), PemPublicKeys.parseRsa(tenant.publicKeyPem()))));
+				LocalDateTime.of(2026, 9, 29, 10, 0), LocalDateTime.of(2026, 10, 29, 10, 0), PemPublicKeys.parseRsa(tenant.publicKeyPem()))));
 		when(events.find(2L)).thenReturn(Optional.of(new EventMeta(2L, "poctenant001",
-				LocalDateTime.of(2026, 9, 29, 10, 0), null))); // 공개키 미등록 이벤트
+				LocalDateTime.of(2026, 9, 29, 10, 0), LocalDateTime.of(2026, 10, 29, 10, 0), null))); // 공개키 미등록 이벤트
 
 		var filter = new JwtAuthFilter(events, CONFIG, Clock.fixed(NOW, ZoneId.of("Asia/Seoul")),
 				new ErrorResponseWriter(JsonMapper.builder().build()));

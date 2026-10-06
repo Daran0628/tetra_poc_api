@@ -102,7 +102,8 @@ class TicketApiIntegrationTest {
 	@Test
 	void 세션이_사라졌으면_Lua가_발급하지_않는다() {
 		long seq0 = counter(TicketStore.seqKey(1));
-		assertThat(ticketStore.issue(SessionKeys.newSessionId(), 1L, Instant.now())).isEmpty();
+		assertThat(ticketStore.issue(SessionKeys.newSessionId(), 1L, "nobody", Instant.now()).status())
+				.isEqualTo(TicketStore.IssueResult.Status.SESSION_GONE);
 		assertThat(counter(TicketStore.seqKey(1))).isEqualTo(seq0); // 번호를 소모하지 않음
 	}
 

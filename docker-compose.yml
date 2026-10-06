@@ -32,5 +32,23 @@ services:
       interval: 5s
       retries: 20
 
+  # 앱 컨테이너 (진행 문서 M10). 기본 `docker compose up` 에서는 뜨지 않고 프로필을 줘야 뜬다:
+  #   docker compose --profile app up -d --build --wait
+  # DB만 띄우고 bootRun 으로 개발하는 기존 방식은 그대로 쓸 수 있다 (같은 8080 포트라 둘 중 하나만).
+  issuance-service:
+    profiles: ["app"]
+    build: ./issuance-service
+    image: tetra/issuance-service:local
+    container_name: tetra-issuance
+    environment:
+      TETRA_ENV: docker        # values/values-docker.yml (DB·Redis 호스트 = 서비스 이름)
+    ports: ["8080:8080"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   mysql-data:

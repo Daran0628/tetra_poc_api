@@ -1,0 +1,46 @@
+# =====================================================================
+# Issuance Service — 로컬 컨테이너(docker compose --profile app) 환경 values
+# ---------------------------------------------------------------------
+# values-local.yml 과 같고, 컨테이너 네트워크 안에서 접속하도록 호스트만 다르다
+# (localhost → docker-compose 서비스 이름). TETRA_ENV=docker 일 때 읽힌다.
+# =====================================================================
+values:
+
+  db:
+    host: mysql                # docker-compose 서비스 이름
+    port: 3306
+    name: tetra_poc
+    username: tetra
+    password: tetra            # 로컬 전용
+
+  redis:
+    host: valkey               # docker-compose 서비스 이름
+    port: 6379
+
+  timezone: Asia/Seoul
+
+  session:
+    redirect-url: /?event={eventId}
+    cookie-name: TETRA_SID
+    ttl: 2h
+    cookie-secure: true
+
+  queue:
+    cursor-step: 300
+    cursor-window: 3s
+    cursor-cache-s-maxage: 1s
+
+  event:
+    info-cache-s-maxage: 60s
+
+  jwt:
+    user-id-max-length: 128
+    clock-skew: 5s
+    max-ttl: 5m
+    test-private-key-path: ""  # 컨테이너 안에서는 쓰지 않음 (토큰은 호스트의 scripts/issue-test-jwt.sh 로 발급)
+
+  management:
+    health-show-details: always
+
+  stock:
+    warmup-mode: if-absent     # 컨테이너 재시작해도 차감분 유지

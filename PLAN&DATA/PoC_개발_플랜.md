@@ -11,7 +11,7 @@
 
 ### 포함
 
-사용자 체감 흐름: **대기실 진입 → 번호표 발급 → 서빙 커서 폴링 → 쿠폰 발급**. 구현할 API는 정확히 5개입니다.
+사용자 체감 흐름: **대기실 진입 → 번호표 발급 → 서빙 커서 폴링 → 쿠폰 발급**. 구현할 API는 6개입니다(2026-10-02 이벤트 정보 조회 추가).
 
 | # | 메서드 | 경로 | 역할 |
 |---|---|---|---|
@@ -20,6 +20,7 @@
 | 3 | GET | `/api/issuance/events/{eventId}/queue/cursor` | 서빙 커서 폴링 (전역 값 1개) |
 | 4 | GET | `/api/issuance/events/{eventId}/coupons` | 쿠폰 목록 + 잔여 수량 |
 | 5 | POST | `/api/issuance/events/{eventId}/coupons/claim` | 쿠폰 발급(원자적 재고 차감) |
+| 6 | GET | `/api/issuance/events/{eventId}/info` | 이벤트 정보(이름·시작/종료 시각·배너·복귀 주소) — 02 대기방 카운트다운용 (2026-10-02 확정) |
 
 ### 제외 (이번 PoC에서 절대 손대지 않음)
 
@@ -50,6 +51,7 @@ CloudFront behavior 요구사항(인프라 담당, 백엔드 동작의 전제 �
 | 우선순위 | behavior | 오리진 | 캐시 | 비고 |
 |---|---|---|---|---|
 | 1 | `/api/issuance/events/*/queue/cursor` | ALB | cache policy TTL은 오리진 헤더를 따름(min 0 ~ max 2초). 캐시 키는 **경로만**(쿠키·쿼리·헤더 제외) | `/api/*`보다 반드시 앞에 배치 |
+| 1-1 | `/api/issuance/events/*/info` | ALB | 오리진 헤더(`public, max-age=0, s-maxage=60`)를 따름. 캐시 키는 경로만 | `/api/*`보다 앞에 배치 (2026-10-02 추가, 이벤트 정보 API) |
 | 2 | `/api/*` | ALB | 캐시 안 함 | 쿠키를 ALB까지 전달 |
 | 기본 | `*` | S3(OAC) | 정적 자산 정책 | viewer-request CloudFront Function으로 SPA 경로 재작성 |
 
@@ -204,8 +206,27 @@ CREATE TABLE issuance_history (
   | 404 | `EVENT_NOT_FOUND` / `NOT_FOUND` | 없는 이벤트·공개키 미등록 이벤트 / 없는 경로 |
   | 405 | `METHOD_NOT_ALLOWED` | 허용 안 된 메서드 |
   | 409 | `EVENT_NOT_STARTED` | 이벤트 시작 전 번호표 요청 |
-  | 409 | `TICKET_REQUIRED` / `ALREADY_CLAIMED` | 번호표 없이 claim / 이미 claim 처리됨 |
+  | 409 | `EVENT_ENDED` | 이벤트 종료(`end_at`) 후 번호표·claim 요청 (2026-10-02 구현) |
+  | 409 | `TICKET_REQUIRED` / `ALREADY_CLAIMED` | 번호표 없이 claim / 이미 claim 처리됨(claim과 **번호표** 둘 다에서 옴) |
   | 500 | `INTERNAL_ERROR` | 예상하지 못한 오류(내부 정보는 응답에 넣지 않음) |
+
+### 4-0. `GET /api/issuance/events/{eventId}/info` — 이벤트 정보 (2026-10-02 확정)
+
+- 목적: 프런트는 모든 이벤트가 같은 빌드(`dist/`)를 쓰므로 이벤트명·시각을 코드에 넣을 수 없다. 02 대기방이 이 API로 받아 카운트다운을 그린다. 서버의 시작·종료 판정(`EVENT_NOT_STARTED`·`EVENT_ENDED`)과 같은 DB 값을 보게 된다. 정식 프로젝트에서도 쓰는 API.
+- **인증 없음** — 이벤트 공통 공개 정보. `SessionAuthFilter`가 커서 API처럼 이 경로를 세션 조회 없이 통과시킨다.
+- 응답 (`data`):
+  ```json
+  {"eventId":1,"name":"PoC 쿠폰 발급 이벤트",
+   "startAt":"2026-09-29T10:00:00+09:00","endAt":"2026-10-29T10:00:00+09:00",
+   "bannerUrl":"","returnUrl":""}
+  ```
+  - `startAt`·`endAt`: DB의 KST 값을 `+09:00`이 붙은 ISO 문자열로.
+  - `bannerUrl` = `event.banner_image_path`, `returnUrl` = `event.endpoint_url`. **빈 문자열일 수 있다**(시드는 빈 값). 나머지는 항상 값이 있다.
+  - 지터 상한은 넣지 않는다(프런트 설정).
+- 에러: 404 `EVENT_NOT_FOUND`, 400 `INVALID_REQUEST` (모두 `no-store`).
+- 캐시: 성공 응답 `Cache-Control: public, max-age=0, s-maxage=60` — 5만 명이 02를 열 때마다 부르므로 CloudFront에 캐시(behavior 1-1, 2절). 시작 시각을 바꾸면 최대 60초 뒤 반영. 캐시 시간은 values 변수.
+- 요청마다 MySQL 접근 없음 — 기동 시 이벤트 메타 캐시에서 응답(이름·배너·복귀 주소도 캐시에 추가).
+- 경로를 `/{eventId}`가 아니라 `/{eventId}/info`로 둔 이유: CloudFront 경로 패턴의 `*`는 `/`도 포함해 맞추므로 `/api/issuance/events/*`로는 이 API만 골라 캐시할 수 없다(번호표·claim까지 캐시됨).
 
 ### 4-1. `GET /api/issuance/session`
 
@@ -225,7 +246,7 @@ CREATE TABLE issuance_history (
   - `iss`/`aud`는 PoC에서 생략 — 이벤트별로 공개키가 이미 분리돼 있어 "누가 발급했는지"가 키 자체로 증명됨.
   - **구현 시 주의 (검증 순서)**: 검증용 공개키가 이벤트별이라, 서명 검증 전에 토큰의 `event_id`를 먼저 읽어(서명 미검증 상태) 해당 이벤트의 `public_key`를 고른 뒤 서명을 검증함. 미검증 상태로 읽은 값은 키 선택에만 쓰고, 세션에 넣는 값은 반드시 서명 검증이 끝난 클레임에서 가져옴. 해당 이벤트가 없거나 `public_key`가 비어 있으면 거절.
   - **구현 시 주의 (알고리즘 고정)**: 헤더의 `alg`를 믿지 않고 RS256만 허용. `none`이나 HS256 토큰은 거절(공개키를 HMAC 비밀키로 오용하는 알고리즘 혼동 공격 방지).
-  - **전달 방식 주의**: 쿼리 파라미터(`?JWT=...`)로 전달됨. exp 1~2분 + jti 1회성으로 위험도는 낮지만, 이 경로는 access log에서 쿼리스트링 마스킹 권장 — 앱 로그(요청 로깅 시 `JWT` 값 마스킹)와 인프라 로그(CloudFront·ALB access log) 모두 해당.
+  - **전달 방식 (2026-10-02 확정)**: 테넌트 페이지가 히든폼을 `method="GET"`, 필드 `JWT`로 페이지 이동 제출 → 쿼리 파라미터(`?JWT=...`)로 전달됨. POST는 지원하지 않음(보내면 검증 후 405, 토큰 소모 — Next Plan N5). exp 1~2분 + jti 1회성으로 위험도는 낮지만, 이 경로는 access log에서 쿼리스트링 마스킹 권장 — 앱 로그(요청 로깅 시 `JWT` 값 마스킹)와 인프라 로그(CloudFront·ALB access log) 모두 해당.
 - 처리 순서:
   1. JWT 서명·만료 검증 (위 검증 순서·알고리즘 고정 규칙 적용)
   1-1. 클레임 `tenant_id`가 해당 이벤트의 `event.tenant_id`와 같은지 확인 — 다르면 거절(다른 테넌트 토큰으로 이 이벤트에 들어오는 것 차단, DB 정의서 수정본에서 `event.tenant_id` 추가로 가능해짐)
@@ -242,9 +263,11 @@ CREATE TABLE issuance_history (
 
 - 요청 본문 없음(쿠키 세션 기반). 대기실(03 화면) 진입 시 1회 호출.
 - 처리: 서버 시각이 `event.start_at` 이전이면 Redis 호출 전에 409 `EVENT_NOT_STARTED`(시작 시각은 기동 시 이벤트 메타 캐시, 현재 시각은 `Clock`).
+- **이벤트 종료 (B1, 2026-10-02 확정)**: 서버 시각이 `event.end_at` 이상이면 Redis 호출 전에 409 `EVENT_ENDED`. `end_at`도 이벤트 메타 캐시에 올린다. 판정은 시작 전 확인과 같은 방식(`Clock`, KST).
 - 경로 `eventId`와 세션 `event_id` 일치는 `SessionAuthFilter`가 먼저 확인(다르면 403).
 - 통과 시 **Lua 스크립트 1개**(`ticket-issue.lua`)로 한 번에 처리(왕복 1회가 목적):
   1. 세션이 그 사이 만료됐으면 번호를 소모하지 않고 중단(→ 401 `SESSION_NOT_FOUND`)
+  1-1. 이미 claim(성공·품절)을 처리받은 사용자(`claim:done:{eventId}:{userId}` 있음)면 번호를 소모하지 않고 중단(→ 409 `ALREADY_CLAIMED`, 2026-10-02 결정 — 재입장해도 다시 기다리지 않게)
   2. `INCR ticket:seq:{eventId}` → 번호 채번
   3. 세션 해시에 `ticket_number` + `queue_entered_at`(epoch 밀리초, 번호표 발급 시각 D9) 기록. 재발급 시 덮어씀 — 이전 번호는 "구멍"이 되고 복구하지 않음, 의도된 동작
   4. 구멍 비율 카운터: 첫 발급 `INCR ticket:total:{eventId}`, 재발급 `INCR ticket:retry:{eventId}` (5절 5번)
@@ -287,6 +310,7 @@ CREATE TABLE issuance_history (
 ### 4-5. `POST /api/issuance/events/{eventId}/coupons/claim`
 
 - 요청 본문 없음(일괄 발급, 개별 선택 없음).
+- 서버 시각이 `event.end_at` 이상이면 Lua 전에 409 `EVENT_ENDED`(B1, 4-2와 같은 판정). 재고·`claim:done`·발급 이력 모두 바뀌지 않는다.
 - 세션에 번호표가 없으면 Lua 전에 409 `TICKET_REQUIRED`(`queue_entered_at`이 없어 이력을 남길 수 없음).
 - **Lua 스크립트 1개**(`coupon-claim.lua`)로 원자적 처리:
   1. `SET claim:done:{eventId}:{userId} 1 NX` — 이미 처리된 사용자면 즉시 거절(409 `ALREADY_CLAIMED`). 성공·품절 모두 표시하며 TTL 없음(재입장 후 중복 claim도 막기 위해, 정리는 Next Plan N4)
@@ -320,6 +344,9 @@ CREATE TABLE issuance_history (
 11. **(2026-10-01) 품절은 에러가 아님**: claim 품절 응답은 200 + `result: SOLD_OUT` — 4-5절.
 12. **(2026-10-01) 재고 워밍업 시점**: Issuance Service 프로세스 기동 시(Pod마다, `if-absent`) — 4-4절.
 13. **(2026-10-01) 정상 사용자 전제**: 경합·비정상 사용 방어(세션 재사용 원자성 등)는 PoC 이후로 미룸. 목록은 `PoC_개발_진행.md`의 "Next Plan" 표(N1 세션 재사용 원자성, N2 클러스터 모드 Lua CROSSSLOT, N3 Redis 유실 시 재고 복원, N4 `claim:done` 정리).
+14. **(2026-10-02) 이벤트 종료 처리 (B1)**: `end_at` 이후 번호표·claim은 409 `EVENT_ENDED`. 세션 발급·커서·쿠폰 목록은 막지 않음(읽기·입장만 — 들어와도 번호표에서 막힘) — 4-2·4-5절.
+15. **(2026-10-02) 배포 순서**: ① 로컬 Docker Desktop에서 컨테이너로 확인 → ② 클라우드 K8s(EKS)로 이전 → ③ 그 위에서 부하테스트. 진행 문서 M9~M11·M8.
+16. **(2026-10-02) 프런트 질문 결정**: 지터 상한은 프런트 설정(`config.ts`)으로 유지(백엔드가 내려주지 않음). claim 순서 재검증은 생략 유지(5절 4번). 이미 claim 처리된 사용자는 번호표에서 409 `ALREADY_CLAIMED`(4-2). 이벤트 정보는 조회 API `GET /api/issuance/events/{eventId}/info`로 내려준다(확정, 4-0절).
 
 ---
 
@@ -384,6 +411,34 @@ AWS(ElastiCache/RDS)는 배포 단계에서만 쓰고, 로컬 개발은 docker-c
 
 로컬 실행 순서: `bash scripts/gen-test-keys.sh` → `docker compose up -d --wait` → `cd issuance-service && ./gradlew bootRun` (상태 확인 `GET /actuator/health`)
 
+### 컨테이너로 실행 (M10, 2026-10-02)
+
+앱도 이미지로 띄우는 방식입니다. `docker-compose.yml`의 `issuance-service`는 `profiles: ["app"]`라 프로필을 줄 때만 뜹니다.
+
+| 할 일 | 명령 (`PoC/`에서) |
+|---|---|
+| 앱까지 기동 (처음 또는 코드 변경 후) | `docker compose --profile app up -d --build --wait` |
+| 코드 변경 없이 기동 | `docker compose --profile app up -d --wait` |
+| 앱만 재시작 | `docker restart tetra-issuance` |
+| 앱만 내리기 (DB는 유지) | `docker compose --profile app stop issuance-service` |
+| 로그 | `docker logs -f tetra-issuance` |
+
+- 설정은 `values/values-docker.yml`(`TETRA_ENV=docker`)입니다. local과 같고 DB·Redis 호스트만 서비스 이름(`mysql`, `valkey`)입니다.
+- **bootRun과 같은 8080 포트**를 쓰므로 둘 중 하나만 띄웁니다.
+- 이미지 빌드에서는 테스트를 돌리지 않습니다(Testcontainers가 Docker를 필요로 함). 테스트는 `./gradlew test`로 따로 합니다. 첫 빌드는 의존성 다운로드로 약 20분, 이후는 캐시로 빨라집니다.
+- 공개키는 앱이 **기동할 때** 읽습니다. DB의 `event.public_key`를 바꿨다면 `docker restart tetra-issuance`가 필요합니다.
+- `docker compose down -v`는 MySQL 볼륨을 지워 시드와 `03_local_test_key.sql`(로컬 테스트 키)로 되돌립니다. 테넌트 공개키를 등록해 둔 경우 다시 넣어야 합니다. 상태만 초기화할 때는 `reset-local.sh --yes`를 씁니다(공개키는 유지).
+
+프런트 빌드본을 컨테이너에 붙여 보기 (`tetra-poc-front/`에서):
+
+```bash
+npm run build
+VITE_API_PROXY_TARGET=http://localhost:8080 npx vite preview --port 4173
+# 입장: bash scripts/issue-test-jwt.sh user-0001 1 poctenant001 240 http://localhost:4173  → 출력 URL을 브라우저로
+```
+
+`vite preview`는 `server.proxy` 설정을 그대로 쓰므로 `/api`가 컨테이너로 넘어가고, 세션 302(`/?event=1`)는 4173의 프런트로 돌아옵니다. `VITE_API_PROXY_TARGET`은 `.env.local`이 아니라 셸 환경변수로 줘야 합니다(통합 문서 I7).
+
 ### 로컬 도구 (`PoC/scripts/`, 2026-10-01)
 
 | 스크립트 | 용도 |
@@ -398,7 +453,7 @@ AWS(ElastiCache/RDS)는 배포 단계에서만 쓰고, 로컬 개발은 docker-c
 
 ## 9. 구현 순서 (마일스톤)
 
-진행 상황은 `PoC_개발_진행.md`가 기준입니다. 2026-10-01 기준 1~7 완료(1차 완료 기준 충족), 8 미착수.
+진행 상황은 `PoC_개발_진행.md`가 기준입니다. 2026-10-01 기준 1~7 완료(1차 완료 기준 충족). 이후 순서(2026-10-02): 9 → 10 → 11 → 8.
 
 1. ✅ 프로젝트 스캐폴딩 — Spring Boot 프로젝트 생성, 7절 패키지 구조, docker-compose, DDL/seed 적용 확인
 2. ✅ 공통 계층 — `ApiResponse`, `ErrorCode`, `GlobalExceptionHandler`, `JwtAuthFilter`·`SessionAuthFilter`(테스트용 JWT 발급 도구 포함)
@@ -407,7 +462,10 @@ AWS(ElastiCache/RDS)는 배포 단계에서만 쓰고, 로컬 개발은 docker-c
 5. ✅ 4-3 커서 폴링 API — 락+피기백, 설정값 분리 + 동시 요청 테스트(락이 정말 1번만 성공하는지). 배포 환경 확인 2건(CloudFront 캐시 히트, `/api/*` 404) 남음
 6. ✅ 4-4/4-5 쿠폰 목록·claim API — Redis 재고 워밍업, Lua 원자적 차감, MySQL 1회 INSERT + 테스트
 7. ✅ 전체 플로우 통합 테스트(세션→티켓→폴링→클레임) + 로컬 초기화·시뮬레이션 스크립트
-8. ⬜ 부하테스트 준비물 전달 — 5만 동시접속 시나리오, 커서 증가량(300/3초) 검증 포인트를 부하테스트 담당자에게 공유
+8. ⬜ 부하테스트 — 클라우드 K8s 위에서 5만 동시접속 시나리오, 커서 증가량(300/3초) 검증 (11 다음)
+9. ⬜ 이벤트 종료 처리(B1) — `end_at` 이후 번호표·claim 409 `EVENT_ENDED` + 테스트
+10. ⬜ 로컬 Docker 배포 확인 — 앱 컨테이너 이미지로 Docker Desktop에서 전체 흐름 확인
+11. ⬜ 클라우드 K8s 이전 — EKS 매니페스트·values, CloudFront·ElastiCache·RDS 연결, 배포 환경 확인 항목
 
 ---
 

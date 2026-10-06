@@ -1,0 +1,10 @@
+# 이미지 빌드에 필요 없는 것 (빌드 산출물, IDE, 로컬 설정)
+build/
+.gradle/
+bin/
+out/
+.idea/
+.vscode/
+*.iml
+HELP.md
+values/values-local.yml

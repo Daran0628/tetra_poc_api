@@ -27,6 +27,7 @@ public enum ErrorCode {
 	// --- 이벤트 -------------------------------------------------------------
 	EVENT_NOT_FOUND(HttpStatus.NOT_FOUND, "이벤트를 찾을 수 없습니다."),
 	EVENT_NOT_STARTED(HttpStatus.CONFLICT, "이벤트가 아직 시작되지 않았습니다."),
+	EVENT_ENDED(HttpStatus.CONFLICT, "이벤트가 종료되었습니다."),
 
 	// --- 세션 쿠키 (SessionAuthFilter) --------------------------------------
 	SESSION_NOT_FOUND(HttpStatus.UNAUTHORIZED, "세션이 없거나 만료되었습니다."),

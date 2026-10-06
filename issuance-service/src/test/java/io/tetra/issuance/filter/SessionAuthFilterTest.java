@@ -95,6 +95,12 @@ class SessionAuthFilterTest {
 		verify(store, never()).find(anyString());
 	}
 
+	@Test
+	void 이벤트_정보_API는_쿠키_없이_통과하고_세션을_조회하지_않는다() throws Exception {
+		mockMvc.perform(get("/api/issuance/events/1/info")).andExpect(status().isOk());
+		verify(store, never()).find(anyString());
+	}
+
 	// --- 거절 -----------------------------------------------------------------
 
 	@Test
@@ -150,6 +156,11 @@ class SessionAuthFilterTest {
 		@PostMapping("/api/issuance/events/{eventId}/coupons/claim")
 		ApiResponse<IssuanceSession> claim(@PathVariable long eventId, HttpServletRequest request) {
 			return ApiResponse.ok(SessionAuthFilter.sessionOf(request));
+		}
+
+		@GetMapping("/api/issuance/events/{eventId}/info")
+		ApiResponse<String> info(@PathVariable long eventId) {
+			return ApiResponse.ok("no session needed");
 		}
 
 		@GetMapping("/api/issuance/events/{eventId}/queue/cursor")

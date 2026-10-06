@@ -18,7 +18,13 @@
 | M5 | 커서 폴링 API `GET /queue/cursor` | 4-3, 5-1 | ✅ 완료 (배포 환경 확인 2건 남음) |
 | M6 | 쿠폰 목록 · claim API | 3절, 4-4, 4-5, 5-2~5-4 | ✅ 완료 |
 | M7 | 전체 플로우 통합 테스트 | 9절-7 | ✅ 완료 |
-| M8 | 부하테스트 준비물 전달 | 9절-8 | ⬜ 대기 |
+| M9 | 이벤트 종료 처리 (B1) | 4-2, 4-5 | ✅ 완료 (프런트 알림만 남음) |
+| M10 | 로컬 Docker 배포 확인 | 5절 15번 | ✅ 완료 (2026-10-02) |
+| M11 | 클라우드 K8s 이전 | 2절, 5절 15번 | ⬜ 대기 |
+| M12 | 이벤트 정보 조회 API | 4-0 | ✅ 완료 (프런트 전달·CloudFront behavior 남음) |
+| M8 | 부하테스트 (클라우드 K8s 위에서) | 9절-8 | ⬜ 대기 — M11 다음 |
+
+진행 순서(2026-10-02): **M9 → M12 → M10 → M11 → M8** (M12는 프런트 연동에 필요해 Docker 확인 전에). M8은 클라우드 K8s 환경에서 진행하므로 마지막.
 
 상태 표기: ⬜ 대기 / 🟨 진행 중 / ✅ 완료 / ⛔ 막힘
 
@@ -374,7 +380,89 @@ PDF 8장 Seed를 읽으며 구현에 영향을 주는 점을 정리했습니다.
 
 ---
 
-## M8. 부하테스트 준비물 전달
+## M9. 이벤트 종료 처리 (B1) — 2026-10-02 확정
+
+통합 점검(프런트 질문)에서 "이벤트 종료 처리가 없다"가 나와 추가한다. 사양은 플랜 4-2·4-5.
+
+- [x] `ErrorCode.EVENT_ENDED` (409, "이벤트가 종료되었습니다.")
+- [x] `domain/Event`에 `end_at` 매핑, `EventMeta`·`EventMetaCache`에 `endAt` 추가 (`ddl-auto: validate`로 스키마 일치 확인)
+- [x] 판정: `!LocalDateTime.now(clock).isBefore(event.endAt())` → 종료. 시작 전 확인과 같은 위치·방식
+- [x] `TicketService`: 시작 전 확인 다음에 종료 확인 → 409, Redis 미호출
+- [x] `ClaimService`: 번호표 확인 전에 종료 확인 → 409, 재고·`claim:done`·발급 이력 변화 없음
+- [x] 막지 않는 것: 세션 발급(입장은 되지만 번호표에서 막힘), 커서(읽기), 쿠폰 목록(읽기)
+- [x] 테스트 (고정 `Clock`)
+  - [x] 번호표: 종료 1초 전 발급, 종료 정각·이후 409·Redis 미호출
+  - [x] claim: 종료 정각·이후 409, 재고·`claim:done`·이력 그대로
+  - [x] 기존 전체 테스트 통과 — 전체 118개 (신규: `TicketServiceTest` 2, `ClaimServiceTest` 4)
+- [x] 문서: 플랜 4절 에러 표 "구현 예정" 문구 제거, 통합 문서 B1 완료 표시
+- [ ] 프런트에 알림: 번호표·claim에 409 `EVENT_ENDED`가 추가됨, 재시도하지 않음
+
+---
+
+## M12. 이벤트 정보 조회 API — 2026-10-02 확정
+
+프런트 질문(이벤트 정보 출처)에서 확정. 사양은 플랜 4-0.
+
+- [x] `domain/Event`에 `name`·`banner_image_path`·`endpoint_url` 매핑, `EventMeta`·캐시에 추가
+- [x] `GET /api/issuance/events/{eventId}/info` — `{eventId,name,startAt,endAt,bannerUrl,returnUrl}`, 시각은 `+09:00` ISO
+- [x] `SessionAuthFilter`가 `/info` 경로를 세션 조회 없이 통과 (커서와 같은 방식, `..` 경로 조작 방지 유지)
+- [x] `Cache-Control: public, max-age=0, s-maxage={값}` — values 변수 `values.event.info-cache-s-maxage`(60s), 에러는 `no-store`
+- [x] 테스트: 응답 필드·시각 형식, 빈 배너·복귀 주소, 없는 이벤트 404, 쿠키 없이 200, 캐시 헤더 — `EventInfoApiIntegrationTest` 5개 + 필터 단위 1개, 전체 128개 통과
+- [x] 문서: 통합 문서 계약표, 프런트에 경로·예시 전달 — 프런트 `088d08a`에서 실제 호출로 교체 확인(통합 2-7절)
+- [ ] 인프라 전달: CloudFront behavior `/api/issuance/events/*/info` (플랜 2절 1-1)
+
+---
+
+## M10. 로컬 Docker 배포 확인 — 2026-10-02 확정
+
+배포는 먼저 로컬 Docker Desktop에서 컨테이너로 확인하고, 그다음 클라우드 K8s로 옮긴다(M11). 이 단계의 목표는 "jar가 아니라 **컨테이너 이미지**로 띄워도 같은 흐름이 동작한다"를 확인하는 것.
+
+- [x] `issuance-service/Dockerfile` — 멀티 스테이지(빌드: JDK 21 + Gradle Wrapper, 실행: JRE 21), 비 root 사용자, `values/` 동봉, 포트 8080
+- [x] `values/values-docker.yml` — 컨테이너 네트워크용 값(DB 호스트 `mysql`, Redis 호스트 `valkey` 등). 나머지는 local과 같게
+- [x] `docker-compose.yml`에 `issuance-service` 서비스 추가 — `profiles: ["app"]`라 `docker compose up`은 DB만, `docker compose --profile app up -d --build --wait`로 앱까지(`TETRA_ENV=docker`, MySQL·Valkey `healthy` 이후 기동, 헬스체크 `/actuator/health`) — 기존처럼 DB만 띄우는 사용도 유지
+- [x] `.dockerignore`(build·.gradle 등 제외), `PoC/.gitattributes`(`*.sh`·`*.lua` LF 고정 — 이미지에 넣는 파일 줄바꿈 보호)
+- [x] 확인 (2026-10-02)
+  - [x] 이미지 빌드 — `tetra/issuance-service:local` 415MB(JRE 21 Alpine), 실행 사용자 `app`(비 root), `values-docker.yml`만 포함, `TZ=Asia/Seoul`, 헬스체크 `wget /actuator/health`. 첫 빌드 19분 30초(컨테이너 안 Gradle·의존성 다운로드, 이후 BuildKit 캐시)
+  - [x] 기동 33초, `/actuator/health` UP(db·redis), 경고·에러 로그 없음. 재고 워밍업 `0 of 10 written, 10 kept`
+  - [x] `reset-local.sh --yes` → `simulate-users.sh 200` (컨테이너 대상) — 번호 1~200, 재발급 0, claim SUCCESS 10 / SOLD_OUT 190 / 기타 0, 발급 이력 200건 일치, Redis 남은 재고 0
+  - [x] 프런트 빌드(`088d08a`, `vite preview` 4173, 프록시 → 컨테이너) — curl로 세션 302 `/?event=1`·쿠키 속성·`/info`(s-maxage 60)·번호표·커서·쿠폰·claim 확인, 브라우저로 02→03→04 claim 성공 확인
+  - [x] 컨테이너 재시작 시 재고 유지(재시작 전후 10개 키 값 동일, 워밍업 `10 kept`), 로그 115줄에 `JWT=`·`eyJ`·`TETRA_SID=`·공개키 0건
+- [x] 문서: 플랜 8절 "컨테이너로 실행" 추가 (명령표, 8080 공유, 공개키 기동 시 로드, `down -v` 주의, 프런트 preview 연결)
+
+참고: 확인 전에 DB의 이벤트 1 공개키를 테넌트 키에서 로컬 테스트 키(`03_local_test_key.sql`)로 되돌렸다. 테넌트 키는 `local-keys/tenant-poctenant001/`에 보관(git 제외).
+
+---
+
+## M11. 클라우드 K8s 이전 — 2026-10-02 확정 (M10 다음)
+
+부하테스트(M8)는 클라우드 K8s 위에서 한다. 세부는 M10이 끝난 뒤 인프라 담당과 정한다.
+
+- [ ] 이미지 레지스트리(ECR) 푸시
+- [ ] K8s 매니페스트 또는 Helm 차트 — Deployment(liveness·readiness 프로브 = `/actuator/health` 그룹), Service, TargetGroupBinding(2026-10-06: ALB는 internal + CloudFront VPC Origins, 기본 인프라 TF가 고정 — Ingress 안 씀, `PoC_infra/PLAN&DATA/PoC_인프라_플로우.md` 5-2절). 인프라 담당이 GitOps로 관리하면 앱 쪽은 이미지·values만 제공
+- [ ] `values-dev.yml` — RDS 주소, Redis는 클러스터 안 Service `redis`, `health-show-details: never`, 비밀값은 Secret
+- [ ] Redis — 2026-10-06 결정: ElastiCache 대신 **EKS 안 Pod**(StatefulSet 1개, `valkey/valkey:7.2`, 클러스터 모드 아님 — Lua 다중 키, Next Plan N2). 인프라 상세는 `PoC_infra/PLAN&DATA/PoC_인프라_플로우.md`
+- [ ] CloudFront behavior(플랜 2절) 적용·확인: cursor 캐시 `x-cache: Hit`, `/api/*` 404가 index.html로 안 바뀜, 오리진 Host에서도 `Location` 상대 경로·쿠키 Domain 없음
+- [ ] 실제 이벤트 데이터: `event.public_key`(테넌트 공개키), `event.subdomain`(`{event_slug}.{tenant_id}`)
+- [ ] 테넌트 페이지 → 실제 이벤트 주소(`https://{event_slug}.{tenant_id}.…/api/issuance/session`)로 브라우저 전체 흐름 02→03→04→모달 (M13에서 남긴 항목, https라 `Secure` 쿠키 정상 저장)
+- [ ] 노드 시계 NTP 동기화 확인 — JWT 만료 허용 오차가 5초라 노드 시계가 어긋나면 입장이 전부 실패함(M13에서 실제로 15분 오차 발생)
+
+---
+
+## M13. 테넌트 입장 연동 테스트 (사내망) — 2026-10-02 완료
+
+테넌트 메인 페이지(별도 개발자) → 히든폼 GET → Tetra 세션 API까지의 **입장 경로**를 실제로 연결해 확인했다. 대기방(프런트)은 미배포라 302 이후 화면은 범위 밖.
+
+- [x] 전달 방식 결정 — 히든폼 `method="GET"`, 필드 `JWT` (POST 지원은 Next Plan N6). 테넌트 연동 가이드 전달(통합 문서 2-6)
+- [x] 테넌트용 RSA 2048 키페어 생성 — `PoC/local-keys/tenant-poctenant001/`(git 제외), 개인키는 테넌트에 전달, 공개키는 로컬 DB `event_id=1`의 `public_key`에 등록 (로컬 테스트 키는 대체됨 — `docker compose down -v` 하면 테스트 키로 돌아감)
+- [x] `scripts/issue-test-jwt.sh`에 `PRIVATE_KEY=경로` 지정 추가 — 같은 테넌트 키로 자체 확인
+- [x] 사내망 노출 — `http://192.168.38.214:8080`. 방화벽: 만든 `Tetra PoC 8080` 규칙은 Domain·Private용인데 Wi-Fi가 Public이라 미적용, 실제로는 Windows가 만든 java.exe 허용 규칙(Public 포함)으로 열림 → **테스트 후 두 규칙 정리 권장**
+- [x] **서버 시계 문제 발견·해결** — 테넌트 측정으로 Tetra PC가 약 15분 늦음 확인(Windows 시간 동기화 꺼짐, 원본 `Local CMOS Clock`). NTP 동기화 설정 후 앱 `Date`와 Google 차이 0초. 15분 늦으면 `exp`가 5분보다 멀게 보여 `JWT_MALFORMED`가 났을 것
+- [x] **결과: 성공** — 테넌트가 `user-7bc6360420b4`로 07:53:59 UTC 제출 → 302 `Location: /?event=1`, `TETRA_SID` 발급. Tetra Redis에 해당 세션(tenant `poctenant001`, event `1`, TTL 2h) 생성 확인
+- [ ] 브라우저 전체 흐름(대기방 이후) — 대기방 배포 후 실제 이벤트 주소로 (M11에 이관). 사내망 http에서는 `Secure` 쿠키가 저장되지 않아 확인 불가, 배포 환경 https에서는 정상이라 `cookie-secure: true` 유지
+
+---
+
+## M8. 부하테스트 (클라우드 K8s 위에서, M11 다음)
 
 - [ ] 부하테스트용 JWT 대량 발급 방법 (사용자 수만큼 서로 다른 `user_id`·`jti`)
 - [ ] 5만 동시접속 시나리오 문서화 (진입 → 번호표 → 적응형 폴링 → claim)
@@ -382,6 +470,7 @@ PDF 8장 Seed를 읽으며 구현에 영향을 주는 점을 정리했습니다.
   - [ ] 커서 증가량 300/3초(초당 100명)를 claim 엔드포인트가 받아내는지 (Redis Lua + MySQL INSERT)
   - [ ] 5만 명 처리 예상 소요 약 8분 20초 대비 실측
   - [ ] 초과 발급 0건, 중복 발급 0건
+  - [ ] claim 1건당 MySQL INSERT 1회(동기)가 병목인지 — INSERT TPS, 커넥션 풀 대기, claim p99. 병목이면 Next Plan N5(품절 이력 벌크 쓰기)
   - [ ] (선택) 구멍 비율 = retry ÷ total
 - [ ] 관측 지표 정리 — API별 p95/p99 지연, 에러율, Redis CPU·커맨드 수, MySQL INSERT TPS
 - [ ] 부하테스트 담당자에게 공유
@@ -398,6 +487,8 @@ PoC는 **정상 사용자만 있다는 전제**로 진행합니다(2026-10-01 �
 | N2 | Lua 스크립트의 여러 키가 서로 다른 해시 슬롯 | `ticket-issue.lua`가 `session:{sid}`와 `ticket:*:{eventId}`를 한 번에 다룸. 단일 노드(ElastiCache 클러스터 모드 꺼짐)에서는 문제없음 | 클러스터 모드로 가면 CROSSSLOT 오류 — 키에 해시 태그(예: `{e1}`)를 붙여 같은 슬롯으로 모으거나 스크립트를 나눔 |
 | N3 | 이벤트 중 Redis 데이터 유실 시 재고 복원 | 재고 워밍업은 Issuance Service 시작(Pod마다) 시 `if-absent`로 실행. Redis 데이터가 사라진 뒤 Pod가 재시작하면 재고가 처음 값으로 다시 채워져 초과 발급 가능. `issuance_history`에 `coupon_id`가 없어 DB로 남은 재고를 계산할 수 없음 | 워밍업을 이벤트 배포 시 1회 작업으로 분리, 재고 키 지속성(AOF 등)·발급 내역 기반 복원 설계 |
 | N4 | `claim:done:{eventId}:{userId}` 키 수명 | TTL 없이 남김 (세션보다 오래 살아야 재입장 후 중복 claim을 막을 수 있음) | 이벤트 종료(`end_at`) 이후 만료되도록 TTL 지정 또는 종료 후 일괄 정리 |
+| N5 | 품절 이력 쓰기 방식 (요청당 1회 vs 벌크) | claim마다 동기 INSERT 1회(성공·품절 모두). 5만 명 중 약 4만 9,990건이 품절 이력이라 쓰기의 대부분이 품절. 커서가 입장 속도를 초당 100명으로 제한하므로 INSERT도 평균 초당 100건 수준 | 부하테스트(M8)에서 MySQL INSERT TPS·claim p99가 병목이면, 품절 이력만 버퍼에 모아 여러 행 INSERT(`INSERT IGNORE … VALUES (…),(…)`)로 쓰는 방식 검토. 성공 이력은 동기 유지 |
+| N6 | 입장 토큰 전달 방식 | 테넌트 히든폼을 `method="GET"`으로 제출(`?JWT=` 쿼리, 2026-10-02 결정). 1회용·짧은 만료·`no-referrer`·앱 로그 마스킹으로 PoC 위험은 낮음 | 운영 전 폼 POST 지원 검토 — JWT가 주소·기록·인프라 접근 로그에 남지 않음. 지금 POST로 보내면 검증 후 405로 실패하고 토큰이 소모됨 |
 
 ## 1차 완료 기준
 
@@ -468,3 +559,13 @@ PoC는 **정상 사용자만 있다는 전제**로 진행합니다(2026-10-01 �
 | 2026-10-01 | ADR-0001·0002를 구현 결과와 동기화 (커서 Lua·Redis 클러스터 모드 전제·재고 유실 위험·오리진 Host·Referrer-Policy / 필터 세부·Store 계층·메모리 캐시·기동 시 설정 검증·라이브러리 선택·품절 200) |
 | 2026-10-01 | 프런트(`PoC_front/tetra-poc-front` 4238ddc) 통합 점검 — `PoC_개발_통합.md` 작성. 응답 래퍼 미처리 등 차단 5건(프런트 수정 필요), 결정 3건(Q1 호스트 event id 형식, Q2 시작 시각 출처, Q3 세션 실패 화면) |
 | 2026-10-02 | 통합 Q1 해결 — 도메인 첫 라벨은 UX용 해시(event slug, `event.subdomain`에 저장), API는 숫자 event_id. `redirect-url`을 `/?event={eventId}`로 확정, 테스트 112개 통과 |
+| 2026-10-02 | B1 이벤트 종료 처리 확정·사양(M9), 배포 순서 확정 — M10 로컬 Docker 확인 → M11 클라우드 K8s 이전 → M8 부하테스트 |
+| 2026-10-02 | M9 완료 — `EVENT_ENDED`(409), `EventMeta.endAt`·`hasStarted/hasEnded`, 번호표·claim 종료 판정. 테스트 118개 통과 |
+| 2026-10-02 | 프런트 질문 결정 — 지터는 프런트 설정, 순서 재검증 생략 유지, claim 처리된 사용자는 번호표에서 409 `ALREADY_CLAIMED`(구현·테스트 4개 추가, 전체 122개 통과). 이벤트 정보 API는 검토 중 |
+| 2026-10-02 | 이벤트 정보 조회 API 확정 — `GET /api/issuance/events/{eventId}/info`(인증 없음, s-maxage 60). M12 추가, 순서 M9 → M12 → M10 → M11 → M8 |
+| 2026-10-02 | 테넌트 히든폼 전달 방식 GET으로 결정(백엔드 변경 없음), 테넌트 연동 가이드 전달. Next Plan N5(POST 지원) 추가 |
+| 2026-10-02 | M12 완료 — `GET /api/issuance/events/{eventId}/info`(`EventInfoService`, 인증 없음, s-maxage 60 values 변수). 테스트 128개 통과 |
+| 2026-10-02 | 품절 이력 쓰기 방식 확인 — 현재 claim당 동기 INSERT 1회(벌크 아님). Next Plan N5·M8 확인 항목 추가 |
+| 2026-10-02 | M10 진행 — Dockerfile·.dockerignore·values-docker.yml·compose `app` 프로필·.gitattributes 추가, 이미지 빌드 성공. 기동 확인은 로컬 bootRun 종료 후 |
+| 2026-10-02 | M13 테넌트 입장 연동 테스트(사내망) 완료 — GET 히든폼, 테넌트 키페어, 서버 시계 15분 오차 발견·NTP 동기화, `user-7bc6360420b4` 세션 생성 확인. 브라우저 전체 흐름은 M11로. Next Plan 중복 번호 N5 → N6 정리 |
+| 2026-10-02 | M10 완료 — 컨테이너 기동·health UP, simulate-users 200명(SUCCESS 10/SOLD_OUT 190), 프런트 `088d08a` 빌드본으로 02→03→04 브라우저 확인, 재시작 재고 유지, 로그 토큰 0건. 플랜 8절 "컨테이너로 실행" 추가 |

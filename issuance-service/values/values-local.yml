@@ -46,6 +46,10 @@ values:
     cursor-window: 3s          # 커서 증가 윈도우 = advance-lock TTL
     cursor-cache-s-maxage: 1s  # Cache-Control: public, max-age=0, s-maxage={값}
 
+  # --- 이벤트 정보 API (플랜 4-0) ---------------------------------------
+  event:
+    info-cache-s-maxage: 60s   # Cache-Control: public, max-age=0, s-maxage={값} — 시작 시각 변경은 최대 이만큼 늦게 반영
+
   # --- JWT (플랜 4-1) --------------------------------------------------
   jwt:
     user-id-max-length: 128

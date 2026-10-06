@@ -29,8 +29,20 @@ public class Event {
 	@JdbcTypeCode(SqlTypes.CHAR) // CHAR(12) ascii_bin
 	private String tenantId;
 
+	@Column(name = "name", length = 100)
+	private String name;
+
 	@Column(name = "start_at")
 	private LocalDateTime startAt;
+
+	@Column(name = "end_at")
+	private LocalDateTime endAt;
+
+	@Column(name = "banner_image_path", length = 1024)
+	private String bannerImagePath;
+
+	@Column(name = "endpoint_url", length = 2048)
+	private String endpointUrl;
 
 	@Column(name = "public_key", length = 2048)
 	private String publicKey;
@@ -46,8 +58,24 @@ public class Event {
 		return tenantId;
 	}
 
+	public String getName() {
+		return name;
+	}
+
 	public LocalDateTime getStartAt() {
 		return startAt;
+	}
+
+	public LocalDateTime getEndAt() {
+		return endAt;
+	}
+
+	public String getBannerImagePath() {
+		return bannerImagePath;
+	}
+
+	public String getEndpointUrl() {
+		return endpointUrl;
 	}
 
 	public String getPublicKey() {

@@ -32,7 +32,7 @@ public class QueueCursorService {
 
 	public long current(long eventId) {
 		EventMeta event = events.find(eventId).orElseThrow(() -> new BusinessException(ErrorCode.EVENT_NOT_FOUND));
-		boolean started = !LocalDateTime.now(clock).isBefore(event.startAt()); // 시작 전에는 증가 없음 (D10)
+		boolean started = event.hasStarted(LocalDateTime.now(clock)); // 시작 전에는 증가 없음 (D10)
 		return cursorStore.advanceAndGet(eventId, started, config.cursorWindow(), config.cursorStep());
 	}
 

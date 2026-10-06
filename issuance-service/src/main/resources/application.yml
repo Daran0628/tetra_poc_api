@@ -70,6 +70,8 @@ tetra:
     cursor-step: ${values.queue.cursor-step}
     cursor-window: ${values.queue.cursor-window}
     cursor-cache-s-maxage: ${values.queue.cursor-cache-s-maxage}
+  event:
+    info-cache-s-maxage: ${values.event.info-cache-s-maxage}
   jwt:
     user-id-max-length: ${values.jwt.user-id-max-length}
     clock-skew: ${values.jwt.clock-skew}

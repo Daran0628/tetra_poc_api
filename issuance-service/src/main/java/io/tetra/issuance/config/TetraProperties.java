@@ -23,6 +23,7 @@ public record TetraProperties(
 		@NotNull ZoneId timezone,
 		@Valid @NotNull Session session,
 		@Valid @NotNull Queue queue,
+		@Valid @NotNull Event event,
 		@Valid @NotNull Jwt jwt,
 		@Valid @NotNull Stock stock) {
 
@@ -61,6 +62,17 @@ public record TetraProperties(
 		@AssertTrue(message = "cursor-cache-s-maxage 는 0초 이상이어야 합니다")
 		public boolean isCursorCacheSMaxageValid() {
 			return cursorCacheSMaxage == null || !cursorCacheSMaxage.isNegative();
+		}
+
+	}
+
+	public record Event(
+			/** 이벤트 정보 API 응답의 CDN 캐시 시간 (s-maxage) */
+			@NotNull Duration infoCacheSMaxage) {
+
+		@AssertTrue(message = "info-cache-s-maxage 는 0초 이상이어야 합니다")
+		public boolean isInfoCacheSMaxageValid() {
+			return infoCacheSMaxage == null || !infoCacheSMaxage.isNegative();
 		}
 
 	}

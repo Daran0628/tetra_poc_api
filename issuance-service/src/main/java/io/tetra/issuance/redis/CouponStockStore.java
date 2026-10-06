@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * 쿠폰 재고·claim Redis 키.
  * <pre>
  * coupon:stock:{eventId}:{couponId}   종류별 재고 (워밍업 때 coupon.stock_count 로 채움, claim 때만 DECR)
- * claim:done:{eventId}:{userId}       claim 처리된 사용자 (성공·품절 모두, TTL 없음 — Next Plan N4)
+ * claim:done:{eventId}:{userId}       claim 처리된 사용자 (성공·품절 모두, TTL 없음 — Next Plan N4). 번호표 발급도 이 키를 보고 막는다
  * </pre>
  */
 @Component

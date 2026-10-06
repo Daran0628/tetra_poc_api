@@ -15,7 +15,7 @@ import io.tetra.issuance.domain.Event;
 import io.tetra.issuance.repository.EventRepository;
 
 /**
- * 이벤트 메타(공개키·테넌트·시작 시각)를 기동 시 한 번 읽어 메모리에 둔다.
+ * 이벤트 메타(공개키·테넌트·이름·시작/종료 시각·배너·복귀 주소)를 기동 시 한 번 읽어 메모리에 둔다.
  * 요청마다 MySQL 을 읽지 않기 위함 (플랜 4-1). PEM 도 이때 미리 공개키 객체로 바꿔 둔다.
  * 기동 후 추가·변경된 이벤트는 {@link #reload()} 로 다시 읽는다 (PoC는 시드 이벤트 1개라 자동 갱신은 두지 않음).
  */
@@ -41,7 +41,8 @@ public class EventMetaCache implements InitializingBean {
 		Map<Long, EventMeta> loaded = new HashMap<>();
 		for (Event e : eventRepository.findAll()) {
 			loaded.put(e.getEventId(),
-					new EventMeta(e.getEventId(), e.getTenantId(), e.getStartAt(), toPublicKey(e)));
+					new EventMeta(e.getEventId(), e.getTenantId(), e.getName(), e.getStartAt(), e.getEndAt(),
+							nullToEmpty(e.getBannerImagePath()), nullToEmpty(e.getEndpointUrl()), toPublicKey(e)));
 		}
 		byId = Map.copyOf(loaded);
 		log.info("Event meta loaded: {} events ({} without public key)", loaded.size(),
@@ -50,6 +51,10 @@ public class EventMetaCache implements InitializingBean {
 
 	public Optional<EventMeta> find(long eventId) {
 		return Optional.ofNullable(byId.get(eventId));
+	}
+
+	private static String nullToEmpty(String s) {
+		return s == null ? "" : s;
 	}
 
 	private static RSAPublicKey toPublicKey(Event e) {

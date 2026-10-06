@@ -26,6 +26,7 @@ class TetraPropertiesTest {
 			"tetra.queue.cursor-step=300",
 			"tetra.queue.cursor-window=3s",
 			"tetra.queue.cursor-cache-s-maxage=1s",
+			"tetra.event.info-cache-s-maxage=60s",
 			"tetra.jwt.user-id-max-length=128",
 			"tetra.jwt.clock-skew=5s",
 			"tetra.jwt.max-ttl=5m",

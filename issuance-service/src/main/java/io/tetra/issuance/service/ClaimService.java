@@ -24,6 +24,7 @@ import io.tetra.issuance.service.CouponCatalog.CouponInfo;
 /**
  * 쿠폰 발급 (플랜 4-5). 입장 자격(번호 순서) 재검증은 PoC 범위에서 생략 — 재고 Lua 가 초과 발급을 막는다.
  * <ol>
+ * <li>이벤트 종료(end_at) 후면 409 EVENT_ENDED — 재고·claim:done·이력 모두 그대로 (B1)</li>
  * <li>번호표 없는 세션이면 409 TICKET_REQUIRED (queue_entered_at 이 없어 이력을 남길 수 없음, M0-3)</li>
  * <li>Lua: 중복 claim 차단 + 재고가 남은 종류마다 1장씩 차감 (D8)</li>
  * <li>결과 확정 즉시 issuance_history 1행 INSERT (성공·품절 모두, served_at NULL)</li>
@@ -35,13 +36,15 @@ public class ClaimService {
 
 	private static final Logger log = LoggerFactory.getLogger(ClaimService.class);
 
+	private final EventMetaCache events;
 	private final CouponCatalog catalog;
 	private final CouponStockStore stockStore;
 	private final IssuanceHistoryRepository historyRepository;
 	private final Clock clock;
 
-	public ClaimService(CouponCatalog catalog, CouponStockStore stockStore, IssuanceHistoryRepository historyRepository,
-			Clock clock) {
+	public ClaimService(EventMetaCache events, CouponCatalog catalog, CouponStockStore stockStore,
+			IssuanceHistoryRepository historyRepository, Clock clock) {
+		this.events = events;
 		this.catalog = catalog;
 		this.stockStore = stockStore;
 		this.historyRepository = historyRepository;
@@ -59,6 +62,11 @@ public class ClaimService {
 	}
 
 	public ClaimResult claim(IssuanceSession session) {
+		EventMeta event = events.find(session.eventId())
+				.orElseThrow(() -> new BusinessException(ErrorCode.EVENT_NOT_FOUND));
+		if (event.hasEnded(LocalDateTime.now(clock))) {
+			throw new BusinessException(ErrorCode.EVENT_ENDED);
+		}
 		if (!session.hasTicket()) {
 			throw new BusinessException(ErrorCode.TICKET_REQUIRED);
 		}

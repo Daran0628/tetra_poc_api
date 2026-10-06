@@ -2,7 +2,6 @@ package io.tetra.issuance.redis;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.OptionalLong;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -40,12 +39,32 @@ public class TicketStore {
 		return "ticket:retry:" + eventId;
 	}
 
-	/** 번호를 채번해 세션에 기록한다. 세션이 그 사이 만료됐으면 empty. */
-	public OptionalLong issue(String sessionId, long eventId, Instant now) {
+	/** 번호표 발급 결과. ISSUED 일 때만 number 가 의미 있다. */
+	public record IssueResult(Status status, long number) {
+
+		public enum Status {
+			ISSUED,
+			/** 세션이 그 사이 만료됨 */
+			SESSION_GONE,
+			/** 이미 claim 처리된 사용자 */
+			ALREADY_CLAIMED
+		}
+
+	}
+
+	/** 번호를 채번해 세션에 기록한다. 세션 만료·이미 claim 처리된 사용자면 번호를 쓰지 않는다. */
+	public IssueResult issue(String sessionId, long eventId, String userId, Instant now) {
 		Long number = redis.execute(ticketIssueScript,
-				List.of(SessionKeys.sessionKey(sessionId), seqKey(eventId), totalKey(eventId), retryKey(eventId)),
+				List.of(SessionKeys.sessionKey(sessionId), seqKey(eventId), totalKey(eventId), retryKey(eventId),
+						CouponStockStore.claimDoneKey(eventId, userId)),
 				Long.toString(now.toEpochMilli()));
-		return number == null || number < 0 ? OptionalLong.empty() : OptionalLong.of(number);
+		if (number == null || number == -1L) {
+			return new IssueResult(IssueResult.Status.SESSION_GONE, 0);
+		}
+		if (number == -2L) {
+			return new IssueResult(IssueResult.Status.ALREADY_CLAIMED, 0);
+		}
+		return new IssueResult(IssueResult.Status.ISSUED, number);
 	}
 
 }

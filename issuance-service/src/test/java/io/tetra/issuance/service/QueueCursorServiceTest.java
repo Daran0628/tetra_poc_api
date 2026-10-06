@@ -24,13 +24,14 @@ class QueueCursorServiceTest {
 
 	static final ZoneId KST = ZoneId.of("Asia/Seoul");
 	static final LocalDateTime START = LocalDateTime.of(2026, 9, 29, 10, 0);
+	static final LocalDateTime END = LocalDateTime.of(2026, 10, 29, 10, 0);
 
 	final EventMetaCache events = mock(EventMetaCache.class);
 	final CursorStore cursorStore = mock(CursorStore.class);
 	final TetraProperties properties = mock(TetraProperties.class);
 
 	QueueCursorService serviceAt(LocalDateTime now) {
-		when(events.find(1L)).thenReturn(Optional.of(new EventMeta(1L, "poctenant001", START, null)));
+		when(events.find(1L)).thenReturn(Optional.of(new EventMeta(1L, "poctenant001", START, END, null)));
 		when(properties.queue()).thenReturn(new TetraProperties.Queue(300, Duration.ofSeconds(3), Duration.ofSeconds(1)));
 		when(cursorStore.advanceAndGet(eq(1L), anyBoolean(), eq(Duration.ofSeconds(3)), anyInt())).thenReturn(0L);
 		return new QueueCursorService(events, cursorStore, properties, Clock.fixed(now.atZone(KST).toInstant(), KST));

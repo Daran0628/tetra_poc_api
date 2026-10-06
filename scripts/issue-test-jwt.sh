@@ -12,7 +12,7 @@
 set -euo pipefail
 
 POC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PRIVATE_KEY="$POC_DIR/local-keys/test-jwt-private.pem"
+PRIVATE_KEY="${PRIVATE_KEY:-$POC_DIR/local-keys/test-jwt-private.pem}"   # 다른 키로 서명하려면 PRIVATE_KEY=경로 로 지정
 
 USER_ID="${1:-user-$(openssl rand -hex 4)}"
 EVENT_ID="${2:-1}"

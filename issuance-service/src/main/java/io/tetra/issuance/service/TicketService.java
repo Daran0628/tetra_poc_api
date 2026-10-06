@@ -28,12 +28,22 @@ public class TicketService {
 	public long issue(IssuanceSession session) {
 		EventMeta event = events.find(session.eventId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.EVENT_NOT_FOUND));
-		// 시작 전이면 Redis 를 부르기 전에 거절. start_at 은 KST 저장, Clock 도 KST
-		if (LocalDateTime.now(clock).isBefore(event.startAt())) {
+		// 시작 전·종료 후면 Redis 를 부르기 전에 거절. start_at·end_at 은 KST 저장, Clock 도 KST
+		LocalDateTime now = LocalDateTime.now(clock);
+		if (!event.hasStarted(now)) {
 			throw new BusinessException(ErrorCode.EVENT_NOT_STARTED);
 		}
-		return ticketStore.issue(session.sessionId(), session.eventId(), clock.instant())
-				.orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+		if (event.hasEnded(now)) {
+			throw new BusinessException(ErrorCode.EVENT_ENDED);
+		}
+		TicketStore.IssueResult result = ticketStore.issue(session.sessionId(), session.eventId(), session.userId(),
+				clock.instant());
+		return switch (result.status()) {
+			case ISSUED -> result.number();
+			case SESSION_GONE -> throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+			// 이미 claim(성공·품절)을 처리받은 사용자는 다시 기다리지 않게 번호표 단계에서 막는다 (2026-10-02)
+			case ALREADY_CLAIMED -> throw new BusinessException(ErrorCode.ALREADY_CLAIMED);
+		};
 	}
 
 }

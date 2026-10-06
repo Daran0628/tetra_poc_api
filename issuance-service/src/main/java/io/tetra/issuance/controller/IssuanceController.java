@@ -21,13 +21,15 @@ import io.tetra.issuance.service.ClaimService;
 import io.tetra.issuance.service.ClaimService.ClaimResult;
 import io.tetra.issuance.service.CouponService;
 import io.tetra.issuance.service.CouponService.CouponView;
+import io.tetra.issuance.service.EventInfoService;
+import io.tetra.issuance.service.EventInfoService.EventInfo;
 import io.tetra.issuance.service.QueueCursorService;
 import io.tetra.issuance.service.SessionService;
 import io.tetra.issuance.service.TicketService;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * Issuance API 5개 (플랜 1절). 얇게 유지 — 요청 값 꺼내기·응답 만들기만 하고 로직은 Service 에 둔다 (ADR-0002 결정 3).
+ * Issuance API 6개 (플랜 1절). 얇게 유지 — 요청 값 꺼내기·응답 만들기만 하고 로직은 Service 에 둔다 (ADR-0002 결정 3).
  */
 @RestController
 @RequestMapping("/api/issuance")
@@ -38,16 +40,18 @@ public class IssuanceController {
 	private final QueueCursorService queueCursorService;
 	private final CouponService couponService;
 	private final ClaimService claimService;
+	private final EventInfoService eventInfoService;
 	private final TetraProperties properties;
 
 	public IssuanceController(SessionService sessionService, TicketService ticketService,
 			QueueCursorService queueCursorService, CouponService couponService, ClaimService claimService,
-			TetraProperties properties) {
+			EventInfoService eventInfoService, TetraProperties properties) {
 		this.sessionService = sessionService;
 		this.ticketService = ticketService;
 		this.queueCursorService = queueCursorService;
 		this.couponService = couponService;
 		this.claimService = claimService;
+		this.eventInfoService = eventInfoService;
 		this.properties = properties;
 	}
 
@@ -78,6 +82,19 @@ public class IssuanceController {
 				.header(HttpHeaders.SET_COOKIE, cookie.toString())
 				.cacheControl(CacheControl.noStore())
 				.build();
+	}
+
+	/**
+	 * 4-0 이벤트 정보 (02 대기방 카운트다운용). 인증 없음(SessionAuthFilter 가 이 경로는 통과시킴).
+	 * Cache-Control: public, max-age=0, s-maxage=60 — 5만 명이 02 를 열 때마다 부르므로 CloudFront 캐시 대상.
+	 */
+	@GetMapping("/events/{eventId}/info")
+	ResponseEntity<ApiResponse<EventInfo>> eventInfo(@PathVariable long eventId) {
+		EventInfo info = eventInfoService.find(eventId);
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CACHE_CONTROL,
+						"public, max-age=0, s-maxage=" + properties.event().infoCacheSMaxage().toSeconds())
+				.body(ApiResponse.ok(info));
 	}
 
 	/** 4-2 번호표 발급: 대기실(03 화면) 진입 시 호출. 재호출·새로고침 때마다 새 번호. */
