@@ -26,6 +26,7 @@ dependencies {
 	implementation("com.nimbusds:nimbus-jose-jwt:10.10") // JWT(RS256) 검증 — Boot 4.1 BOM이 관리하지 않아 버전 명시 (2026-09-17 릴리스)
 	compileOnly("org.projectlombok:lombok")
 	runtimeOnly("com.mysql:mysql-connector-j")
+	runtimeOnly("io.micrometer:micrometer-registry-prometheus") // /actuator/prometheus — Prometheus가 앱 지표를 수집 (모니터링 문서 4-3)
 	annotationProcessor("org.projectlombok:lombok")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-redis-test")

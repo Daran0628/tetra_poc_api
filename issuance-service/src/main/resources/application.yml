@@ -51,22 +51,32 @@ server:
     # ALB 가 재사용하려던 연결을 앱이 먼저 닫아 간헐적으로 502 가 난다 (Tomcat 기본은 60초)
     keep-alive-timeout: ${values.tomcat-keep-alive-timeout}
     use-relative-redirects: true
+    # Tomcat 스레드 풀 지표(tomcat_threads_busy_threads 등)를 /actuator/prometheus 로 내보내려면 필요 (기본 꺼짐)
+    mbeanregistry:
+      enabled: true
     # 접근 로그는 기본 꺼짐. 켜더라도 쿼리스트링이 남지 않게 %U(경로만)를 쓴다 — 기본 형식의 %r 은
     # "GET /api/issuance/session?JWT=..." 처럼 토큰까지 기록함 (플랜 4-1 쿼리스트링 마스킹)
     accesslog:
       pattern: '%h %t "%m %U %H" %s %b %D'
 
-# --- 헬스체크 (Actuator) ------------------------------------------------
-# health 엔드포인트만 연다: GET /actuator/health (MySQL·Redis 상태 포함)
-# CloudFront는 /api/* 만 ALB로 보내므로 외부에서는 닿지 않고, ALB·EKS 헬스체크용으로 쓴다.
+# --- 헬스체크·지표 (Actuator) -------------------------------------------
+# 두 엔드포인트만 연다. CloudFront는 /api/* 만 ALB로 보내므로 외부에서는 닿지 않는다.
+#   GET /actuator/health      ALB·EKS 헬스체크 (liveness·readiness 그룹 포함)
+#   GET /actuator/prometheus  클러스터 안 Prometheus 가 수집 (ServiceMonitor, 모니터링 문서 4-3)
+#     — http_server_requests_seconds(API별 처리량·지연), jvm_*, tomcat_threads_*, hikaricp_connections_*
 management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       show-details: ${values.management.health-show-details}
+  metrics:
+    # API별 p99 를 Prometheus 에서 계산할 수 있게 응답 시간을 히스토그램 버킷으로 내보낸다
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 
 # --- 앱 설정 (진행 문서 0-2 표의 tetra.* 키) ------------------------------
 tetra:

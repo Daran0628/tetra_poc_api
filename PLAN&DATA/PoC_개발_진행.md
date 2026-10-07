@@ -457,6 +457,12 @@ PDF 8장 Seed를 읽으며 구현에 영향을 주는 점을 정리했습니다.
   - [x] B2 `server.tomcat.keep-alive-timeout` 65초(values 변수, local·docker·dev) — 컨테이너에서 62초 쉰 연결을 재사용해 200 확인
   - [x] B3 claim 재요청 시 처음 결과 그대로 200 — `claim:done` 값에 발급 couponId 목록 저장(품절은 빈 문자열), 재요청 때 이력 INSERT도 다시 시도(빠진 이력 보충). 번호표 재요청은 여전히 409 `ALREADY_CLAIMED`. 프런트 알림은 통합 문서 2-8절
   - [x] 테스트 130개 통과(재claim 성공·품절 유지·이력 보충 추가, no-store 검사 추가)
+- [x] 모니터링 지표 노출 (2026-10-07, 모니터링 문서 4-3·5절)
+  - [x] `micrometer-registry-prometheus` 의존성, `management.endpoints.web.exposure.include: health,prometheus` → `GET /actuator/prometheus`
+  - [x] `management.metrics.distribution.percentiles-histogram.http.server.requests: true` (API별 p99용 버킷)
+  - [x] `server.tomcat.mbeanregistry.enabled: true` — 없으면 `tomcat_threads_*`가 나오지 않음(Boot 기본 꺼짐)
+  - [x] 컨테이너 확인: `http_server_requests_seconds_bucket`(uri별), `jvm_*`, `tomcat_threads_busy_threads`, `hikaricp_connections_pending` 노출. 그 밖의 actuator 경로(`/actuator/env` 등)는 404
+  - 인프라 할 일: 앱 ServiceMonitor(`/actuator/prometheus`, 포트 8080)
 - [ ] Redis — 2026-10-06 결정: ElastiCache 대신 **EKS 안 Pod**(StatefulSet 1개, `valkey/valkey:7.2`, 클러스터 모드 아님 — Lua 다중 키, Next Plan N2). 인프라 상세는 `PoC_infra/PLAN&DATA/PoC_인프라_플로우.md`
 - [ ] CloudFront behavior(플랜 2절) 적용·확인: cursor 캐시 `x-cache: Hit`, `/api/*` 404가 index.html로 안 바뀜, 오리진 Host에서도 `Location` 상대 경로·쿠키 Domain 없음
 - [ ] 실제 이벤트 데이터: `event.public_key`(테넌트 공개키), `event.subdomain`(`{event_slug}.{tenant_id}`)
@@ -588,3 +594,4 @@ PoC는 **정상 사용자만 있다는 전제**로 진행합니다(2026-10-01 �
 | 2026-10-02 | M10 완료 — 컨테이너 기동·health UP, simulate-users 200명(SUCCESS 10/SOLD_OUT 190), 프런트 `088d08a` 빌드본으로 02→03→04 브라우저 확인, 재시작 재고 유지, 로그 토큰 0건. 플랜 8절 "컨테이너로 실행" 추가 |
 | 2026-10-06 | M11 인프라 요청(10-7절) 반영 — `values-dev.yml`, graceful 종료(20초), 풀 크기·`sslMode` values 변수화, Probe 경로 확인. 테스트 128개 통과 |
 | 2026-10-06 | 인프라 2차 요청 반영 — 성공 응답 no-store, keep-alive 65초, claim 재요청 시 처음 결과 200. 테스트 130개 통과 |
+| 2026-10-07 | Prometheus 지표 노출(`/actuator/prometheus`, 요청 지연 히스토그램, Tomcat 스레드 지표) |
